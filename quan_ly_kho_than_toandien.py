@@ -16,7 +16,7 @@ from streamlit_option_menu import option_menu
 # 1. TỰ ĐỘNG NHẬN DIỆN THIẾT BỊ & TỐI ƯU GIAO DIỆN
 # ==========================================
 st.set_page_config(
-    page_title="ERP Quản Lý Kho Than V3.1 - Cloud Sync", 
+    page_title="ERP Quản Lý Kho Than V4.0 - Secure Cloud", 
     page_icon="🪨", 
     layout="wide", 
     initial_sidebar_state="expanded"
@@ -56,20 +56,22 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 # ==========================================
-# 2. KẾT NỐI GOOGLE SHEETS & SQLITE (ĐỒNG BỘ 2 CHIỀU)
+# 2. BẢO MẬT KẾT NỐI GOOGLE SHEETS & SQLITE
 # ==========================================
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1EK3Vn7EZMkZZTs1BcC6Is7JniYJHlRiOTuT4mKkGnEw/edit?usp=sharing"
+# Kéo Link Sheets từ Két sắt bảo mật (Secrets)
+SHEET_URL = st.secrets["sheet_url"]
 
 @st.cache_resource
 def get_gspread_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    with open("credentials.json", "r", encoding="utf-8") as f:
-        creds_dict = json.load(f)
+    # Móc chìa khóa Google JSON trực tiếp từ Streamlit Secrets
+    creds_dict = json.loads(st.secrets["google_key"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     return gspread.authorize(creds)
 
 @st.cache_resource
 def init_local_db():
+    """Tải Database ảo từ Google Sheets về để tốc độ đạt mili-giây"""
     conn = sqlite3.connect("kho_than.db", check_same_thread=False)
     client = get_gspread_client()
     sheet = client.open_by_url(SHEET_URL)
@@ -84,6 +86,7 @@ def init_local_db():
 init_local_db()
 
 def background_sync_task():
+    """Luồng ngầm âm thầm đẩy dữ liệu lên Cloud mà không báo rác giao diện"""
     try:
         bg_conn = sqlite3.connect("kho_than.db", check_same_thread=False)
         client = get_gspread_client()
@@ -104,8 +107,8 @@ def background_sync_task():
             ws.clear()
             if not df.empty:
                 ws.update(values=[df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist(), range_name="A1")
-    except Exception as e:
-        print(f"Lỗi đồng bộ ngầm: {e}")
+    except Exception:
+        pass # Chặn in lỗi để hệ thống im lặng tuyệt đối
     finally:
         bg_conn.close()
 
@@ -129,11 +132,13 @@ def get_connection():
             self.connection = connection
             
         def commit(self):
+            # Lưu ngay vào máy, mượt mà tức thời
             self.connection.commit()
+            # Kích hoạt luồng đồng bộ ngầm
             sync_thread = threading.Thread(target=background_sync_task)
             sync_thread.daemon = True
             sync_thread.start()
-            st.toast("☁️ Đang đồng bộ ngầm lên Cloud...", icon="⏳")
+            # ĐÃ XÓA ST.TOAST (THÔNG BÁO) THEO YÊU CẦU ĐỂ TỐI ƯU SỰ CHUYÊN NGHIỆP
                 
         def cursor(self):
             return CursorWrapper(self.connection.cursor())
@@ -154,8 +159,12 @@ def init_database():
         cursor = conn.cursor()
         cursor.execute('''CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT, username VARCHAR(255) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, role VARCHAR(50) DEFAULT 'user', status VARCHAR(50) DEFAULT 'Chờ duyệt')''')
+        
+        # Móc mật khẩu Admin từ Két sắt
         cursor.execute("SELECT * FROM users WHERE username='admin'")
-        if not cursor.fetchone(): cursor.execute("INSERT INTO users (username, password, role, status) VALUES (?, ?, 'admin', 'Đã duyệt')", ('admin', hash_password('Manh5115!')))
+        if not cursor.fetchone(): 
+            cursor.execute("INSERT INTO users (username, password, role, status) VALUES (?, ?, 'admin', 'Đã duyệt')", 
+                           ('admin', hash_password(st.secrets["admin_pass"])))
 
         cursor.execute('''CREATE TABLE IF NOT EXISTS loai_than (
             id INTEGER PRIMARY KEY AUTOINCREMENT, ten_than VARCHAR(255) UNIQUE NOT NULL, gia_nhap_mac_dinh DOUBLE PRECISION DEFAULT 0, gia_mac_dinh DOUBLE PRECISION DEFAULT 0, ton_kho DOUBLE PRECISION DEFAULT 0, nguoi_tao VARCHAR(255) DEFAULT 'Hệ thống')''')
