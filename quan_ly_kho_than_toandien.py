@@ -678,6 +678,7 @@ elif menu == "Lịch Sử Đơn Hàng":
         st.dataframe(df_his.style.format({'Tổng Tiền (đ)': '{:,.0f}', 'Nợ Lại (đ)': '{:,.0f}'}), use_container_width=True, hide_index=True)
 
 # ==========================================
+# ==========================================
 # PHÂN HỆ 5: QUẢN LÝ CẤU HÌNH HỆ THỐNG GỘP
 # ==========================================
 elif menu == "Cài Đặt Hệ Thống":
@@ -689,11 +690,10 @@ elif menu == "Cài Đặt Hệ Thống":
         
     tab_sys = st.selectbox("Chọn danh mục cần cấu hình:", tabs_list)
     
+    # 1. Danh Mục Loại Than
     if tab_sys == "1. Danh Mục Loại Than":
         with get_connection() as conn: 
-            # Lấy danh sách loại than
             df_t = pd.read_sql_query("SELECT id, ten_than FROM loai_than", conn)
-            # Lấy danh sách lịch sử nhập kho chi tiết
             df_nhap = pd.read_sql_query('''
                 SELECT nh.ngay_nhap as "Ngày", lt.ten_than as "Loại Than", 
                        nh.xuong_nhap as "Xưởng Nhập", nh.so_luong as "SL (kg)", 
@@ -702,48 +702,46 @@ elif menu == "Cài Đặt Hệ Thống":
                 ORDER BY nh.id DESC
             ''', conn)
             
-        t_sub1, t_sub2, t_sub3 = st.tabs(["➕ Thêm Mã Mới", "🔧 Sửa Mã", "🚢 Lịch Sử Nhập Kho"])
+        t_sub1, t_sub2, t_sub3 = st.tabs(["➕ Thêm Loại Than", "🔧 Sửa Tên/Giá Bán", "🚢 Nhập Hàng Mới & Lịch Sử"])
         
         with t_sub1:
             with st.form("f_c_add"):
-                n = st.text_input("Tên loại than:"); pn = st.number_input("Giá nhập gốc (đ/kg):", value=1500); p = st.number_input("Giá bán lẻ (đ/kg):", value=3000); s = st.number_input("Tồn kho đầu kỳ (kg):", value=0.0)
-                if st.form_submit_button("Thêm Loại Than Mới"):
+                n = st.text_input("Tên loại than mới:"); pn = st.number_input("Giá nhập gốc (đ/kg):", value=1500); p = st.number_input("Giá bán lẻ (đ/kg):", value=3000)
+                if st.form_submit_button("Thêm Loại Than"):
                     with get_connection() as conn: 
-                        conn.cursor().execute("INSERT INTO loai_than(ten_than,gia_nhap_mac_dinh,gia_mac_dinh,ton_kho,nguoi_tao) VALUES(%s,%s,%s,%s,%s)",(n.strip(),pn,p,s,st.session_state.current_user))
+                        conn.cursor().execute("INSERT INTO loai_than(ten_than,gia_nhap_mac_dinh,gia_mac_dinh,ton_kho,nguoi_tao) VALUES(?,?,?,?,?)", (n.strip(),pn,p,0.0,st.session_state.current_user))
                         conn.commit()
                     st.rerun()
-                    
+
         with t_sub2:
             if not df_t.empty:
-                id_e = st.selectbox("Chọn mã than:", options=df_t['id'].tolist(), format_func=lambda x: df_t[df_t['id']==x]['ten_than'].values[0])
+                than_dict = dict(zip(df_t['id'], df_t['ten_than']))
+                id_e = st.selectbox("Chọn mã than:", options=list(than_dict.keys()), format_func=lambda x: than_dict.get(x))
                 with get_connection() as conn: info = pd.read_sql_query(f"SELECT * FROM loai_than WHERE id={id_e}", conn).iloc[0]
                 with st.form("f_c_edit"):
                     en = st.text_input("Tên loại than:", value=info['ten_than']); ep = st.number_input("Giá bán mới (đ/kg):", value=float(info['gia_mac_dinh']))
-                    if st.form_submit_button("Cập Nhật Tên & Giá Bán"):
+                    if st.form_submit_button("Cập Nhật"):
                         with get_connection() as conn: 
-                            conn.cursor().execute("UPDATE loai_than SET ten_than=%s, gia_mac_dinh=%s WHERE id=%s",(en.strip(),ep,id_e))
+                            conn.cursor().execute("UPDATE loai_than SET ten_than=?, gia_mac_dinh=? WHERE id=?", (en.strip(), ep, id_e))
                             conn.commit()
                         st.rerun()
-            
-            # Form Nhập Kho chi tiết (Thay cho form nhập cũ)
-            st.markdown("---")
+
+        with t_sub3:
             st.subheader("📦 Nhập hàng vào kho")
             with st.form("f_c_in"):
-                id_n = st.selectbox("Chọn loại than cần nhập:", options=df_t['id'].tolist(), format_func=lambda x: df_t[df_t['id']==x]['ten_than'].values[0])
-                xuong = st.text_input("Tên xưởng nhập / Nguồn than:")
+                id_n = st.selectbox("Chọn loại than:", options=list(than_dict.keys()), format_func=lambda x: than_dict.get(x))
+                xuong = st.text_input("Tên xưởng / Nguồn nhập:")
                 w_in = st.number_input("Số kg nhập:", min_value=1.0, value=1000.0, step=100.0)
                 p_in = st.number_input("Giá nhập chuyến này (đ/kg):", value=1500, step=10)
                 if st.form_submit_button("Cộng Tồn Kho & Ghi Lịch Sử"):
                     with get_connection() as conn: 
-                        # Ghi vào bảng lịch sử nhập hàng
                         conn.cursor().execute('''INSERT INTO nhap_hang(loai_than_id, ngay_nhap, xuong_nhap, so_luong, don_gia_nhap, nguoi_tao) 
                                                VALUES(?,?,?,?,?,?)''', (id_n, today_str, xuong, w_in, p_in, st.session_state.current_user))
-                        # Cập nhật tồn kho tổng
-                        conn.cursor().execute("UPDATE loai_than SET ton_kho=ton_kho+%s WHERE id=%s",(w_in,id_n))
+                        conn.cursor().execute("UPDATE loai_than SET ton_kho=ton_kho+? WHERE id=?", (w_in, id_n))
                         conn.commit()
                     st.success("Nhập kho thành công!"); st.rerun()
-
-        with t_sub3:
+            st.markdown("---")
+            st.subheader("📜 Nhật ký nhập kho")
             st.dataframe(df_nhap, use_container_width=True, hide_index=True)
 
     elif tab_sys == "2. Quản Lý Khách Hàng":
