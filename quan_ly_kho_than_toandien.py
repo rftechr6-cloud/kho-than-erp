@@ -217,7 +217,7 @@ if not st.session_state.logged_in:
             with st.form("login_form"):
                 user = st.text_input("Tài khoản:")
                 pwd = st.text_input("Mật khẩu:", type="password")
-                if st.form_submit_button("Đăng Nhập ", type="primary"):
+                if st.form_submit_button("Đăng Nhập Nhận Ca", type="primary"):
                     with get_connection() as conn:
                         res = conn.cursor()
                         res.execute("SELECT role, status FROM users WHERE username=%s AND password=%s", (user, hash_password(pwd)))
