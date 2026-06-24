@@ -16,7 +16,7 @@ from streamlit_option_menu import option_menu
 # 1. TỰ ĐỘNG NHẬN DIỆN THIẾT BỊ & TỐI ƯU GIAO DIỆN
 # ==========================================
 st.set_page_config(
-    page_title="ERP Quản Lý Kho Than V4.1 - Secure Cloud", 
+    page_title="ERP Quản Lý Kho Than V4.0 - Secure Cloud", 
     page_icon="🪨", 
     layout="wide", 
     initial_sidebar_state="expanded"
@@ -58,6 +58,7 @@ def hash_password(password):
 # ==========================================
 # 2. BẢO MẬT KẾT NỐI GOOGLE SHEETS & SQLITE
 # ==========================================
+# CẢI TIẾN BẢO MẬT: Móc Link Sheets từ Két sắt (Secrets)
 try:
     SHEET_URL = st.secrets["sheet_url"]
 except KeyError:
@@ -68,6 +69,7 @@ except KeyError:
 def get_gspread_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     try:
+        # CẢI TIẾN BẢO MẬT: Móc chìa khóa Google JSON trực tiếp từ Streamlit Secrets
         creds_dict = json.loads(st.secrets["google_key"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         return gspread.authorize(creds)
@@ -91,6 +93,7 @@ def init_local_db():
 init_local_db()
 
 def background_sync_task():
+    """CẢI TIẾN: Luồng ngầm âm thầm đẩy dữ liệu lên Cloud mà không báo rác giao diện"""
     try:
         bg_conn = sqlite3.connect("kho_than.db", check_same_thread=False)
         client = get_gspread_client()
@@ -112,7 +115,7 @@ def background_sync_task():
             if not df.empty:
                 ws.update(values=[df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist(), range_name="A1")
     except Exception:
-        pass 
+        pass # Im lặng tuyệt đối khi chạy ngầm
     finally:
         bg_conn.close()
 
@@ -136,7 +139,9 @@ def get_connection():
             self.connection = connection
             
         def commit(self):
+            # Lưu cục bộ tốc độ mili-giây
             self.connection.commit()
+            # Kích hoạt luồng đồng bộ ngầm
             sync_thread = threading.Thread(target=background_sync_task)
             sync_thread.daemon = True
             sync_thread.start()
@@ -161,6 +166,7 @@ def init_database():
         cursor.execute('''CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT, username VARCHAR(255) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, role VARCHAR(50) DEFAULT 'user', status VARCHAR(50) DEFAULT 'Chờ duyệt')''')
         
+        # CẢI TIẾN BẢO MẬT: Móc mật khẩu Admin từ Két sắt
         cursor.execute("SELECT * FROM users WHERE username='admin'")
         if not cursor.fetchone(): 
             cursor.execute("INSERT INTO users (username, password, role, status) VALUES (?, ?, 'admin', 'Đã duyệt')", 
@@ -204,8 +210,7 @@ if 'user_role' not in st.session_state: st.session_state.user_role = None
 if 'cart' not in st.session_state: st.session_state.cart = []
 if 'last_order_id' not in st.session_state: st.session_state.last_order_id = None
 
-# ĐỒNG BỘ MÚI GIỜ CHUẨN VIỆT NAM (UTC + 7) ĐỂ TRÁNH LỖI NGÀY HÔM NAY TRÊN MÁY CHỦ CLOUD
-now_dt = datetime.utcnow() + timedelta(hours=7)
+now_dt = datetime.now()
 today_str = now_dt.strftime('%Y-%m-%d')
 
 if not st.session_state.logged_in:
@@ -273,6 +278,7 @@ with st.sidebar:
         st.session_state.clear(); st.rerun()
     st.markdown("---")
     
+    # CẢI TIẾN: Giao diện Menu chuyên nghiệp
     menu = option_menu(
         menu_title="CHỨC NĂNG CỐT LÕI", 
         options=[
@@ -323,24 +329,12 @@ if menu == "Thống Kê (HQ)":
         elif time_filter == "Tuần này": df_group = df_group[df_group['Date'].dt.date >= (now_dt - timedelta(days=now_dt.weekday())).date()]
         elif time_filter == "Tháng này": df_group = df_group[(df_group['Date'].dt.month == now_dt.month) & (df_group['Date'].dt.year == now_dt.year)]
 
-    # CƠ CHẾ HIỂN THỊ KPI AN TOÀN TUYỆT ĐỐI KHÔNG BỊ TRẮNG MÀN HÌNH
-    if df_group.empty:
-        total_rev = 0
-        debt_rev = 0
-        pending_count = 0
-        total_orders = 0
-    else:
-        total_rev = df_group['tong_tien'].sum()
-        debt_df = df_group[df_group['trang_thai_giao'] == 'Đã hoàn thành']
-        debt_rev = debt_df['tien_con_no'].sum() if not debt_df.empty else 0
-        pending_df = df_group[df_group['trang_thai_giao'] != 'Đã hoàn thành']
-        pending_count = pending_df['don_id'].nunique() if not pending_df.empty else 0
-        total_orders = df_group['don_id'].nunique()
-
-    if df_flat.empty:
-        total_profit = 0
-    else:
-        total_profit = df_flat['loi_nhuan'].sum()
+    # CẢI TIẾN: Luôn hiển thị thẻ KPI kể cả khi trống dữ liệu
+    total_rev = df_group['tong_tien'].sum() if not df_group.empty else 0
+    debt_rev = df_group[df_group['trang_thai_giao'] == 'Đã hoàn thành']['tien_con_no'].sum() if not df_group.empty else 0
+    total_profit = df_flat['loi_nhuan'].sum() if not df_flat.empty else 0
+    pending_count = df_group[df_group['trang_thai_giao'] != 'Đã hoàn thành']['don_id'].nunique() if not df_group.empty else 0
+    total_orders = df_group['don_id'].nunique() if not df_group.empty else 0
     
     c1, c2, c3, c4 = st.columns(4)
     with c1: st.markdown(f"<div class='kpi-card'><div class='kpi-label'>📦 Tổng Đơn Cần Giao</div><div class='kpi-value'>{total_orders} <span style='font-size:14px;color:#64748b;'>({pending_count} chờ)</span></div></div>", unsafe_allow_html=True)
@@ -350,13 +344,16 @@ if menu == "Thống Kê (HQ)":
 
     st.markdown("---")
 
+    # Hiển thị cảnh báo sắp hết hàng bất chấp thời gian
     if not df_kho_status.empty:
         for _, r in df_kho_status[df_kho_status['ton_kho'] < 500].iterrows():
             st.markdown(f"<div class='delay-alert' style='border-left-color:#f59e0b; background-color:#fffbeb; color:#b45309;'>⚠️ <b>SẮP HẾT HÀNG</b>: Mã <b>{r['ten_than']}</b> chỉ còn <b>{r['ton_kho']:,.0f} kg</b>. Cần nhập bãi!</div>", unsafe_allow_html=True)
 
+    # CẢI TIẾN: Xử lý giao diện nếu không có đơn
     if df_group.empty or df_flat.empty:
         st.info("📌 Hệ thống chưa ghi nhận phát sinh đơn hàng nào trong mốc thời gian này. Hãy thử chọn mốc thời gian khác (VD: Tuần này hoặc Tất cả thời gian) để xem thống kê chi tiết.")
     else:
+        # Xử lý cảnh báo giao trễ
         for _, r in df_group[df_group['trang_thai_giao'] != 'Đã hoàn thành'].iterrows():
             hours_elapsed = (now_dt - pd.to_datetime(r['thoi_gian_tao'])).total_seconds() / 3600
             if hours_elapsed > 4:
