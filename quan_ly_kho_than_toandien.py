@@ -69,12 +69,15 @@ def get_gspread_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     try:
         creds_dict = json.loads(st.secrets["google_key"])
+        
+        # --- DÒNG CODE VÀNG: Ép đổi text thành dấu xuống dòng chuẩn ---
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         return gspread.authorize(creds)
     except Exception as e:
         st.error(f"Lỗi đọc chìa khóa bảo mật: {e}")
         st.stop()
-
 @st.cache_resource
 def init_local_db():
     conn = sqlite3.connect("kho_than.db", check_same_thread=False)
