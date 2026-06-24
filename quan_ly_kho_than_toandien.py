@@ -189,7 +189,10 @@ def init_database():
             id INTEGER PRIMARY KEY AUTOINCREMENT, don_hang_id INTEGER, so_tien_tra DOUBLE PRECISION NOT NULL, hinh_thuc VARCHAR(100), ngay_tra TIMESTAMP, ghi_chu TEXT, nguoi_tao VARCHAR(255) DEFAULT 'Hệ thống', FOREIGN KEY (don_hang_id) REFERENCES don_hang(id) ON DELETE CASCADE)''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS cau_hinh_in (
             id INTEGER PRIMARY KEY CHECK (id = 1), ten_cua_hang VARCHAR(255) DEFAULT 'TỔNG KHO THAN', so_dien_thoai VARCHAR(50) DEFAULT '0988.888.888', thong_tin_ngan_hang TEXT DEFAULT 'Chưa cài đặt', kho_giay_mac_dinh VARCHAR(100) DEFAULT 'A4 (Tiêu chuẩn văn phòng)')''')
-        
+        cursor.execute("PRAGMA table_info(nhap_hang)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if 'xuong_nhap' not in columns:
+            cursor.execute("ALTER TABLE nhap_hang ADD COLUMN xuong_nhap VARCHAR(255)")
         cursor.execute("INSERT OR IGNORE INTO cau_hinh_in (id, thong_tin_ngan_hang) VALUES (1, 'Chưa cài đặt')")
         cursor.execute("SELECT id FROM khach_hang WHERE ma_khach_hang IS NULL")
         old_custs = cursor.fetchall()
