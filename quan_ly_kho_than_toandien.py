@@ -689,7 +689,7 @@ elif menu == "Cài Đặt Hệ Thống":
         
     tab_sys = st.selectbox("Chọn danh mục cần cấu hình:", tabs_list)
     
-    elif tab_sys == "1. Danh Mục Loại Than":
+    if tab_sys == "1. Danh Mục Loại Than":
         with get_connection() as conn: 
             # Lấy danh sách loại than
             df_t = pd.read_sql_query("SELECT id, ten_than FROM loai_than", conn)
