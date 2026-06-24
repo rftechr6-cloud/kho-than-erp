@@ -1,6 +1,1 @@
-streamlit
-pandas
-plotly
-gspread
-oauth2client
-streamlit-option-menu
+
