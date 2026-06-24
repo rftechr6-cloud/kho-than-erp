@@ -208,7 +208,7 @@ now_dt = datetime.now()
 today_str = now_dt.strftime('%Y-%m-%d')
 
 if not st.session_state.logged_in:
-    st.markdown("<div class='main-header'><h1 style='text-align:center;'>HỆ THỐNG QUẢN TRỊ KHO THAN CLOUD</h1></div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-header'><h1 style='text-align:center;'>HỆ THỐNG QUẢN TRỊ KHO THAN </h1></div>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
         tab_login, tab_reg = st.tabs(["🔐 Đăng Nhập", "📝 Đăng Ký Tài Khoản"])
@@ -216,7 +216,7 @@ if not st.session_state.logged_in:
             with st.form("login_form"):
                 user = st.text_input("Tài khoản:")
                 pwd = st.text_input("Mật khẩu:", type="password")
-                if st.form_submit_button("Đăng Nhập Nhận Ca", type="primary"):
+                if st.form_submit_button("Đăng Nhập ", type="primary"):
                     with get_connection() as conn:
                         res = conn.cursor()
                         res.execute("SELECT role, status FROM users WHERE username=%s AND password=%s", (user, hash_password(pwd)))
