@@ -686,41 +686,62 @@ elif menu == "Cài Đặt Hệ Thống":
         
     tab_sys = st.selectbox("Chọn danh mục cần cấu hình:", tabs_list)
     
-    if tab_sys == "1. Danh Mục Loại Than":
-        with get_connection() as conn: df_t = pd.read_sql_query("SELECT id, ten_than, gia_nhap_mac_dinh, gia_mac_dinh, ton_kho, nguoi_tao as \"Người Nhập\" FROM loai_than", conn)
-        t_sub1, t_sub2, t_sub4 = st.tabs(["➕ Thêm Mã Mới", "🔧 Sửa Mã", "🚢 Nhập Hàng Mới"])
+    elif tab_sys == "1. Danh Mục Loại Than":
+        with get_connection() as conn: 
+            # Lấy danh sách loại than
+            df_t = pd.read_sql_query("SELECT id, ten_than FROM loai_than", conn)
+            # Lấy danh sách lịch sử nhập kho chi tiết
+            df_nhap = pd.read_sql_query('''
+                SELECT nh.ngay_nhap as "Ngày", lt.ten_than as "Loại Than", 
+                       nh.xuong_nhap as "Xưởng Nhập", nh.so_luong as "SL (kg)", 
+                       nh.don_gia_nhap as "Giá Nhập (đ/kg)", nh.nguoi_tao as "Người Nhập"
+                FROM nhap_hang nh JOIN loai_than lt ON nh.loai_than_id = lt.id
+                ORDER BY nh.id DESC
+            ''', conn)
+            
+        t_sub1, t_sub2, t_sub3 = st.tabs(["➕ Thêm Mã Mới", "🔧 Sửa Mã", "🚢 Lịch Sử Nhập Kho"])
         
         with t_sub1:
             with st.form("f_c_add"):
-                n = st.text_input("Tên loại than:"); pn = st.number_input("Giá nhập gốc (đ/kg):", value=1500); p = st.number_input("Giá bán lẻ (đ/kg):", value=3000); s = st.number_input("Tồn kho (kg):", value=0.0)
-                if st.form_submit_button("Thêm Loại Than"):
+                n = st.text_input("Tên loại than:"); pn = st.number_input("Giá nhập gốc (đ/kg):", value=1500); p = st.number_input("Giá bán lẻ (đ/kg):", value=3000); s = st.number_input("Tồn kho đầu kỳ (kg):", value=0.0)
+                if st.form_submit_button("Thêm Loại Than Mới"):
                     with get_connection() as conn: 
                         conn.cursor().execute("INSERT INTO loai_than(ten_than,gia_nhap_mac_dinh,gia_mac_dinh,ton_kho,nguoi_tao) VALUES(%s,%s,%s,%s,%s)",(n.strip(),pn,p,s,st.session_state.current_user))
                         conn.commit()
                     st.rerun()
+                    
         with t_sub2:
             if not df_t.empty:
                 id_e = st.selectbox("Chọn mã than:", options=df_t['id'].tolist(), format_func=lambda x: df_t[df_t['id']==x]['ten_than'].values[0])
-                info = df_t[df_t['id']==id_e].iloc[0]
+                with get_connection() as conn: info = pd.read_sql_query(f"SELECT * FROM loai_than WHERE id={id_e}", conn).iloc[0]
                 with st.form("f_c_edit"):
-                    en = st.text_input("Tên mới:", value=info['ten_than']); epn = st.number_input("Giá nhập gốc (đ/kg):", value=float(info['gia_nhap_mac_dinh'])); ep = st.number_input("Giá bán mới (đ/kg):", value=float(info['gia_mac_dinh'])); es = st.number_input("Hiệu chỉnh Tồn Kho (kg):", value=float(info['ton_kho']))
-                    if st.form_submit_button("Cập Nhật"):
+                    en = st.text_input("Tên loại than:", value=info['ten_than']); ep = st.number_input("Giá bán mới (đ/kg):", value=float(info['gia_mac_dinh']))
+                    if st.form_submit_button("Cập Nhật Tên & Giá Bán"):
                         with get_connection() as conn: 
-                            conn.cursor().execute("UPDATE loai_than SET ten_than=%s, gia_nhap_mac_dinh=%s, gia_mac_dinh=%s, ton_kho=%s WHERE id=%s",(en.strip(),epn,ep,es,id_e))
+                            conn.cursor().execute("UPDATE loai_than SET ten_than=%s, gia_mac_dinh=%s WHERE id=%s",(en.strip(),ep,id_e))
                             conn.commit()
                         st.rerun()
-        with t_sub4:
-            if not df_t.empty:
-                id_n = st.selectbox("Chọn than cần nhập kho:", options=df_t['id'].tolist(), format_func=lambda x: df_t[df_t['id']==x]['ten_than'].values[0])
-                with st.form("f_c_in"):
-                    w_in = st.number_input("Số kg nhập kho:", min_value=1.0, value=5000.0); p_in = st.number_input("Giá nhập chuyến này (đ/kg):", value=1500)
-                    if st.form_submit_button("Cộng Kho"):
-                        with get_connection() as conn: 
-                            conn.cursor().execute("UPDATE loai_than SET ton_kho=ton_kho+%s WHERE id=%s",(w_in,id_n))
-                            conn.cursor().execute("INSERT INTO nhap_hang(loai_than_id, ngay_nhap, so_luong, don_gia_nhap, nguoi_tao) VALUES(%s,%s,%s,%s,%s)", (id_n, today_str, w_in, p_in, st.session_state.current_user))
-                            conn.commit()
-                        st.rerun()
-        st.dataframe(df_t.drop(columns=['id']), use_container_width=True, hide_index=True)
+            
+            # Form Nhập Kho chi tiết (Thay cho form nhập cũ)
+            st.markdown("---")
+            st.subheader("📦 Nhập hàng vào kho")
+            with st.form("f_c_in"):
+                id_n = st.selectbox("Chọn loại than cần nhập:", options=df_t['id'].tolist(), format_func=lambda x: df_t[df_t['id']==x]['ten_than'].values[0])
+                xuong = st.text_input("Tên xưởng nhập / Nguồn than:")
+                w_in = st.number_input("Số kg nhập:", min_value=1.0, value=1000.0, step=100.0)
+                p_in = st.number_input("Giá nhập chuyến này (đ/kg):", value=1500, step=10)
+                if st.form_submit_button("Cộng Tồn Kho & Ghi Lịch Sử"):
+                    with get_connection() as conn: 
+                        # Ghi vào bảng lịch sử nhập hàng
+                        conn.cursor().execute('''INSERT INTO nhap_hang(loai_than_id, ngay_nhap, xuong_nhap, so_luong, don_gia_nhap, nguoi_tao) 
+                                               VALUES(?,?,?,?,?,?)''', (id_n, today_str, xuong, w_in, p_in, st.session_state.current_user))
+                        # Cập nhật tồn kho tổng
+                        conn.cursor().execute("UPDATE loai_than SET ton_kho=ton_kho+%s WHERE id=%s",(w_in,id_n))
+                        conn.commit()
+                    st.success("Nhập kho thành công!"); st.rerun()
+
+        with t_sub3:
+            st.dataframe(df_nhap, use_container_width=True, hide_index=True)
 
     elif tab_sys == "2. Quản Lý Khách Hàng":
         with get_connection() as conn: df_k = pd.read_sql_query("SELECT id, ma_khach_hang, ten_khach, sdt, dia_chi, khu_vuc, link_google_maps, nguoi_tao as \"Người Tạo\" FROM khach_hang", conn)
