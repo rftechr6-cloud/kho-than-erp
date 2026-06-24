@@ -16,7 +16,7 @@ from streamlit_option_menu import option_menu
 # 1. TỰ ĐỘNG NHẬN DIỆN THIẾT BỊ & TỐI ƯU GIAO DIỆN
 # ==========================================
 st.set_page_config(
-    page_title="ERP Quản Lý Kho Than V4.0 - Secure Cloud", 
+    page_title="ERP Quản Lý Kho Than V4.1 - Secure Cloud", 
     page_icon="🪨", 
     layout="wide", 
     initial_sidebar_state="expanded"
@@ -58,20 +58,25 @@ def hash_password(password):
 # ==========================================
 # 2. BẢO MẬT KẾT NỐI GOOGLE SHEETS & SQLITE
 # ==========================================
-# Kéo Link Sheets từ Két sắt bảo mật (Secrets)
-SHEET_URL = st.secrets["sheet_url"]
+try:
+    SHEET_URL = st.secrets["sheet_url"]
+except KeyError:
+    st.error("Chưa cấu hình Két sắt bảo mật (Secrets) cho hệ thống.")
+    st.stop()
 
 @st.cache_resource
 def get_gspread_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # Móc chìa khóa Google JSON trực tiếp từ Streamlit Secrets
-    creds_dict = json.loads(st.secrets["google_key"])
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    return gspread.authorize(creds)
+    try:
+        creds_dict = json.loads(st.secrets["google_key"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        return gspread.authorize(creds)
+    except Exception as e:
+        st.error(f"Lỗi đọc chìa khóa bảo mật: {e}")
+        st.stop()
 
 @st.cache_resource
 def init_local_db():
-    """Tải Database ảo từ Google Sheets về để tốc độ đạt mili-giây"""
     conn = sqlite3.connect("kho_than.db", check_same_thread=False)
     client = get_gspread_client()
     sheet = client.open_by_url(SHEET_URL)
@@ -86,7 +91,6 @@ def init_local_db():
 init_local_db()
 
 def background_sync_task():
-    """Luồng ngầm âm thầm đẩy dữ liệu lên Cloud mà không báo rác giao diện"""
     try:
         bg_conn = sqlite3.connect("kho_than.db", check_same_thread=False)
         client = get_gspread_client()
@@ -108,7 +112,7 @@ def background_sync_task():
             if not df.empty:
                 ws.update(values=[df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist(), range_name="A1")
     except Exception:
-        pass # Chặn in lỗi để hệ thống im lặng tuyệt đối
+        pass 
     finally:
         bg_conn.close()
 
@@ -132,13 +136,10 @@ def get_connection():
             self.connection = connection
             
         def commit(self):
-            # Lưu ngay vào máy, mượt mà tức thời
             self.connection.commit()
-            # Kích hoạt luồng đồng bộ ngầm
             sync_thread = threading.Thread(target=background_sync_task)
             sync_thread.daemon = True
             sync_thread.start()
-            # ĐÃ XÓA ST.TOAST (THÔNG BÁO) THEO YÊU CẦU ĐỂ TỐI ƯU SỰ CHUYÊN NGHIỆP
                 
         def cursor(self):
             return CursorWrapper(self.connection.cursor())
@@ -160,7 +161,6 @@ def init_database():
         cursor.execute('''CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT, username VARCHAR(255) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, role VARCHAR(50) DEFAULT 'user', status VARCHAR(50) DEFAULT 'Chờ duyệt')''')
         
-        # Móc mật khẩu Admin từ Két sắt
         cursor.execute("SELECT * FROM users WHERE username='admin'")
         if not cursor.fetchone(): 
             cursor.execute("INSERT INTO users (username, password, role, status) VALUES (?, ?, 'admin', 'Đã duyệt')", 
@@ -204,11 +204,12 @@ if 'user_role' not in st.session_state: st.session_state.user_role = None
 if 'cart' not in st.session_state: st.session_state.cart = []
 if 'last_order_id' not in st.session_state: st.session_state.last_order_id = None
 
-now_dt = datetime.now()
+# ĐỒNG BỘ MÚI GIỜ CHUẨN VIỆT NAM (UTC + 7) ĐỂ TRÁNH LỖI NGÀY HÔM NAY TRÊN MÁY CHỦ CLOUD
+now_dt = datetime.utcnow() + timedelta(hours=7)
 today_str = now_dt.strftime('%Y-%m-%d')
 
 if not st.session_state.logged_in:
-    st.markdown("<div class='main-header'><h1 style='text-align:center;'>HỆ THỐNG QUẢN TRỊ KHO THAN </h1></div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-header'><h1 style='text-align:center;'>HỆ THỐNG QUẢN TRỊ KHO THAN CLOUD</h1></div>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
         tab_login, tab_reg = st.tabs(["🔐 Đăng Nhập", "📝 Đăng Ký Tài Khoản"])
@@ -322,33 +323,46 @@ if menu == "Thống Kê (HQ)":
         elif time_filter == "Tuần này": df_group = df_group[df_group['Date'].dt.date >= (now_dt - timedelta(days=now_dt.weekday())).date()]
         elif time_filter == "Tháng này": df_group = df_group[(df_group['Date'].dt.month == now_dt.month) & (df_group['Date'].dt.year == now_dt.year)]
 
-    has_alert = False
-    if not df_group.empty:
+    # CƠ CHẾ HIỂN THỊ KPI AN TOÀN TUYỆT ĐỐI KHÔNG BỊ TRẮNG MÀN HÌNH
+    if df_group.empty:
+        total_rev = 0
+        debt_rev = 0
+        pending_count = 0
+        total_orders = 0
+    else:
+        total_rev = df_group['tong_tien'].sum()
+        debt_df = df_group[df_group['trang_thai_giao'] == 'Đã hoàn thành']
+        debt_rev = debt_df['tien_con_no'].sum() if not debt_df.empty else 0
+        pending_df = df_group[df_group['trang_thai_giao'] != 'Đã hoàn thành']
+        pending_count = pending_df['don_id'].nunique() if not pending_df.empty else 0
+        total_orders = df_group['don_id'].nunique()
+
+    if df_flat.empty:
+        total_profit = 0
+    else:
+        total_profit = df_flat['loi_nhuan'].sum()
+    
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.markdown(f"<div class='kpi-card'><div class='kpi-label'>📦 Tổng Đơn Cần Giao</div><div class='kpi-value'>{total_orders} <span style='font-size:14px;color:#64748b;'>({pending_count} chờ)</span></div></div>", unsafe_allow_html=True)
+    with c2: st.markdown(f"<div class='kpi-card border-green'><div class='kpi-label'>💵 Doanh Thu Tạm Tính</div><div class='kpi-value text-green'>{total_rev:,.0f} đ</div></div>", unsafe_allow_html=True)
+    with c3: st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lợi Nhuận Gộp</div><div class='kpi-value text-purple'>{total_profit:,.0f} đ</div></div>", unsafe_allow_html=True)
+    with c4: st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>🛑 Nợ Thực Tế (Đã Giao)</div><div class='kpi-value text-red'>{debt_rev:,.0f} đ</div></div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    if not df_kho_status.empty:
+        for _, r in df_kho_status[df_kho_status['ton_kho'] < 500].iterrows():
+            st.markdown(f"<div class='delay-alert' style='border-left-color:#f59e0b; background-color:#fffbeb; color:#b45309;'>⚠️ <b>SẮP HẾT HÀNG</b>: Mã <b>{r['ten_than']}</b> chỉ còn <b>{r['ton_kho']:,.0f} kg</b>. Cần nhập bãi!</div>", unsafe_allow_html=True)
+
+    if df_group.empty or df_flat.empty:
+        st.info("📌 Hệ thống chưa ghi nhận phát sinh đơn hàng nào trong mốc thời gian này. Hãy thử chọn mốc thời gian khác (VD: Tuần này hoặc Tất cả thời gian) để xem thống kê chi tiết.")
+    else:
         for _, r in df_group[df_group['trang_thai_giao'] != 'Đã hoàn thành'].iterrows():
             hours_elapsed = (now_dt - pd.to_datetime(r['thoi_gian_tao'])).total_seconds() / 3600
             if hours_elapsed > 4:
-                has_alert = True
                 tx_name = r['ten_nhan_vien'] if r['ten_nhan_vien'] else "Chưa phân xe"
                 st.markdown(f"<div class='delay-alert'>🚨 <b>ĐƠN TRỄ QUÁ 4 GIỜ (Mã {r['ma_don_hien_thi']})</b><br>• Tài xế: {tx_name} | Đối tác: {r['ten_khach']} | Người lên đơn: <b>{r['nguoi_tao']}</b> | Chờ: {hours_elapsed:.1f} giờ</div>", unsafe_allow_html=True)
                 
-    if not df_kho_status.empty:
-        for _, r in df_kho_status[df_kho_status['ton_kho'] < 500].iterrows():
-            has_alert = True
-            st.markdown(f"<div class='delay-alert' style='border-left-color:#f59e0b; background-color:#fffbeb; color:#b45309;'>⚠️ <b>SẮP HẾT HÀNG</b>: Mã <b>{r['ten_than']}</b> chỉ còn <b>{r['ton_kho']:,.0f} kg</b>. Cần nhập bãi!</div>", unsafe_allow_html=True)
-
-    if not df_group.empty and not df_flat.empty:
-        total_rev = df_group['tong_tien'].sum()
-        debt_rev = df_group[df_group['trang_thai_giao'] == 'Đã hoàn thành']['tien_con_no'].sum() 
-        total_profit = df_flat['loi_nhuan'].sum()
-        pending_count = df_group[df_group['trang_thai_giao'] != 'Đã hoàn thành']['don_id'].nunique()
-        
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: st.markdown(f"<div class='kpi-card'><div class='kpi-label'>📦 Tổng Đơn Cần Giao</div><div class='kpi-value'>{df_group['don_id'].nunique()} <span style='font-size:14px;color:#64748b;'>({pending_count} chờ)</span></div></div>", unsafe_allow_html=True)
-        with c2: st.markdown(f"<div class='kpi-card border-green'><div class='kpi-label'>💵 Doanh Thu Tạm Tính</div><div class='kpi-value text-green'>{total_rev:,.0f} đ</div></div>", unsafe_allow_html=True)
-        with c3: st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lợi Nhuận Gộp</div><div class='kpi-value text-purple'>{total_profit:,.0f} đ</div></div>", unsafe_allow_html=True)
-        with c4: st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>🛑 Nợ Thực Tế (Đã Giao)</div><div class='kpi-value text-red'>{debt_rev:,.0f} đ</div></div>", unsafe_allow_html=True)
-
-        st.markdown("---")
         st.markdown("### 🤖 Trợ Lý AI: Phân Tích Hành Vi & Gợi Ý Chiến Lược")
         with get_connection() as conn:
             df_ai = pd.read_sql_query("SELECT dh.id, dh.ngay_ban, kh.ten_khach, lt.ten_than, ctdh.so_luong, (ctdh.so_luong * ctdh.don_gia) as thanh_tien FROM don_hang dh JOIN chi_tiet_don_hang ctdh ON dh.id = ctdh.don_hang_id JOIN khach_hang kh ON dh.khach_hang_id = kh.id JOIN loai_than lt ON ctdh.loai_than_id = lt.id", conn)
