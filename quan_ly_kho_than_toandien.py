@@ -166,7 +166,12 @@ def init_database():
         conn.commit()
 
 init_database()
-
+def clean_ghost_data():
+    with get_connection() as conn:
+        conn.execute("DELETE FROM loai_than WHERE ten_than IS NULL OR TRIM(ten_than) = ''")
+        conn.execute("DELETE FROM khach_hang WHERE ten_khach IS NULL OR TRIM(ten_khach) = ''")
+        conn.execute("DELETE FROM nhan_vien WHERE ten_nhan_vien IS NULL OR TRIM(ten_nhan_vien) = ''")
+        conn.commit()
 # ==========================================
 # 3. HỆ THỐNG ĐĂNG NHẬP
 # ==========================================
