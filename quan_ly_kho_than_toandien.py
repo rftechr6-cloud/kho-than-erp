@@ -17,7 +17,7 @@ import io
 # 1. TỰ ĐỘNG NHẬN DIỆN THIẾT BỊ & TỐI ƯU GIAO DIỆN
 # ==========================================
 st.set_page_config(
-    page_title="ERP Quản Lý Kho Than V6.0 - Hoàn Chỉnh", 
+    page_title="ERP Quản Lý Kho Than V6.1 - Ổn Định", 
     page_icon="🪨", 
     layout="wide", 
     initial_sidebar_state="expanded"
@@ -196,7 +196,7 @@ if not st.session_state.logged_in:
             with st.form("login_form"):
                 user = st.text_input("Tài khoản:")
                 pwd = st.text_input("Mật khẩu:", type="password")
-                if st.form_submit_button("Đăng Nhập", type="primary"):
+                if st.form_submit_button("Đăng Nhập Nhận Ca", type="primary"):
                     with get_connection() as conn:
                         res = conn.cursor()
                         res.execute("SELECT role, status FROM users WHERE username=? AND password=?", (user, hash_password(pwd)))
@@ -219,7 +219,7 @@ if not st.session_state.logged_in:
                                 conn.cursor().execute("INSERT INTO users (username, password, role, status) VALUES (?, ?, 'user', 'Chờ duyệt')", (n_user, hash_password(n_pwd)))
                                 conn.commit()
                             st.success("Đã gửi yêu cầu!")
-                        except: st.error("Tài khoản này đã tồn tại!")
+                        except sqlite3.IntegrityError: st.error("Tài khoản này đã tồn tại!")
     st.stop()
 
 def sinh_ma_don_hang_theo_ngay(ngay_str):
@@ -297,7 +297,7 @@ if menu == "Thống Kê (HQ)":
         st.plotly_chart(fig_map, use_container_width=True)
 
 # ==========================================
-# PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU (ĐÃ VÁ LỖI INDEX)
+# PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU
 # ==========================================
 elif menu == "Lập Đơn & In Phiếu":
     st.markdown("### 📋 Lập Lệnh Xuất Kho / Bán Hàng")
@@ -328,7 +328,7 @@ elif menu == "Lập Đơn & In Phiếu":
             st.markdown(f'<a href="data:text/html;base64,{b64}" target="_blank" style="display: block; text-align: center; background-color: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; font-weight: bold; text-decoration: none; margin-top: 15px; font-size: 16px;">🖨️ XEM & IN HÓA ĐƠN (Để xuất PDF: Bấm In -> Chọn "Lưu thành PDF")</a>', unsafe_allow_html=True)
             st.markdown("<br>**Hoặc bôi đen nội dung dưới đây để COPY gửi qua Zalo:**", unsafe_allow_html=True)
             st.code(text_bill, language="text")
-            if st.button("🔄 LẬP ĐƠN MỚI TẾP THEO"): st.session_state.last_order_id = None; st.rerun()
+            if st.button("🔄 LẬP ĐƠN MỚI TIẾP THEO"): st.session_state.last_order_id = None; st.rerun()
     else:
         with get_connection() as conn:
             df_khach = pd.read_sql_query("SELECT id, ma_khach_hang, ten_khach FROM khach_hang", conn)
@@ -344,7 +344,6 @@ elif menu == "Lập Đơn & In Phiếu":
             than_options = df_than[df_than['id'].isin(df_pb['loai_than_id'].tolist())] if not df_pb.empty else df_than
             if than_options.empty: than_options = df_than
             
-            # Khắc phục lỗi Index tại Selectbox Than
             than_dict = dict(zip(than_options['id'], than_options['ten_than']))
             t_id = st.selectbox("🪨 Chọn loại than:", options=list(than_dict.keys()), format_func=lambda x: than_dict.get(x, "Lỗi"))
             
@@ -410,7 +409,10 @@ elif menu == "Giao Hàng & Vận Tải":
                     with st.form(f"giao_xe_{r['id']}"):
                         st.write(f"📦 Đơn **{r['ma_don_hien_thi']}** - Khách: **{r['ten_khach']}**")
                         if r['link_google_maps']: st.markdown(f"[📍 Mở Bản Đồ Đường Đi]({r['link_google_maps']})")
-                        tx_id = st.selectbox("Tài xế:", options=df_staff['id'].tolist(), format_func=lambda x: df_staff[df_staff['id']==x]['ten_nhan_vien'].values[0])
+                        
+                        tx_dict = dict(zip(df_staff['id'], df_staff['ten_nhan_vien']))
+                        tx_id = st.selectbox("Tài xế:", options=list(tx_dict.keys()), format_func=lambda x: tx_dict.get(x))
+                        
                         if st.form_submit_button("Lệnh Cho Xe Chạy"):
                             with get_connection() as conn: 
                                 conn.cursor().execute("UPDATE don_hang SET trang_thai_giao='Đang giao', nhan_vien_id=? WHERE id=?", (tx_id, r['id'])); conn.commit()
@@ -461,7 +463,6 @@ elif menu == "Lịch Sử Đơn Hàng":
     with get_connection() as conn: df_his = pd.read_sql_query('''SELECT dh.ma_don_hien_thi as "Mã Đơn", dh.thoi_gian_tao as "Ngày Giờ", kh.ten_khach as "Khách Hàng", nv.ten_nhan_vien as "Tài Xế", dh.tong_tien as "Tổng Tiền", dh.tien_con_no as "Nợ Lại", dh.nguoi_tao as "Người Lập" FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id WHERE dh.trang_thai_giao = 'Đã hoàn thành' ORDER BY dh.id DESC''', conn)
     if not df_his.empty:
         st.dataframe(df_his.style.format({'Tổng Tiền': '{:,.0f}', 'Nợ Lại': '{:,.0f}'}), use_container_width=True, hide_index=True)
-        # Nút xuất Excel (CSV UTF-8)
         st.download_button("📥 XUẤT BÁO CÁO EXCEL", data=df_his.to_csv(index=False, encoding='utf-8-sig'), file_name=f"Lich_Su_Giao_{today_str}.csv", mime="text/csv")
 
 # ==========================================
@@ -473,7 +474,7 @@ elif menu == "Cài Đặt Hệ Thống":
     if st.session_state.user_role == 'admin': tabs_list.append("6. Quản Lý Tài Khoản (Admin)")
     tab_sys = st.selectbox("Chọn danh mục cần cấu hình:", tabs_list)
     
-    # 1. Danh Mục Loại Than (Đã cập nhật Nhập kho Xưởng)
+    # 1. Danh Mục Loại Than 
     if tab_sys == "1. Danh Mục Loại Than":
         with get_connection() as conn: 
             df_t = pd.read_sql_query("SELECT id, ten_than FROM loai_than", conn)
@@ -484,9 +485,11 @@ elif menu == "Cài Đặt Hệ Thống":
             with st.form("f_c_add"):
                 n = st.text_input("Tên than mới:"); pn = st.number_input("Giá nhập gốc:", value=1500); p = st.number_input("Giá bán:", value=3000)
                 if st.form_submit_button("Thêm"):
-                    with get_connection() as conn: 
-                        conn.cursor().execute("INSERT INTO loai_than(ten_than,gia_nhap_mac_dinh,gia_mac_dinh,ton_kho,nguoi_tao) VALUES(?,?,?,?,?)", (n.strip(),pn,p,0.0,st.session_state.current_user)); conn.commit()
-                    st.rerun()
+                    try:
+                        with get_connection() as conn: 
+                            conn.cursor().execute("INSERT INTO loai_than(ten_than,gia_nhap_mac_dinh,gia_mac_dinh,ton_kho,nguoi_tao) VALUES(?,?,?,?,?)", (n.strip(),pn,p,0.0,st.session_state.current_user)); conn.commit()
+                        st.success("Thêm thành công!"); st.rerun()
+                    except sqlite3.IntegrityError: st.error("Tên loại than này đã tồn tại!")
         with t_sub2:
             if not df_t.empty:
                 than_dict = dict(zip(df_t['id'], df_t['ten_than']))
@@ -495,9 +498,11 @@ elif menu == "Cài Đặt Hệ Thống":
                 with st.form("f_c_edit"):
                     en = st.text_input("Tên mới:", value=info['ten_than']); ep = st.number_input("Giá bán mới:", value=float(info['gia_mac_dinh']))
                     if st.form_submit_button("Cập Nhật"):
-                        with get_connection() as conn: 
-                            conn.cursor().execute("UPDATE loai_than SET ten_than=?, gia_mac_dinh=? WHERE id=?", (en.strip(), ep, id_e)); conn.commit()
-                        st.rerun()
+                        try:
+                            with get_connection() as conn: 
+                                conn.cursor().execute("UPDATE loai_than SET ten_than=?, gia_mac_dinh=? WHERE id=?", (en.strip(), ep, id_e)); conn.commit()
+                            st.success("Cập nhật thành công!"); st.rerun()
+                        except sqlite3.IntegrityError: st.error("Tên loại than này đã tồn tại!")
         with t_sub3:
             st.subheader("📦 Nhập hàng vào kho")
             with st.form("f_c_in"):
@@ -510,7 +515,7 @@ elif menu == "Cài Đặt Hệ Thống":
                         with get_connection() as conn: 
                             conn.cursor().execute('''INSERT INTO nhap_hang(loai_than_id, ngay_nhap, xuong_nhap, so_luong, don_gia_nhap, nguoi_tao) VALUES(?,?,?,?,?,?)''', (id_n, today_str, xuong, w_in, p_in, st.session_state.current_user))
                             conn.cursor().execute("UPDATE loai_than SET ton_kho=ton_kho+? WHERE id=?", (w_in, id_n)); conn.commit()
-                        st.rerun()
+                        st.success("Nhập kho thành công!"); st.rerun()
             st.dataframe(df_nhap, use_container_width=True, hide_index=True)
 
     # 2. Khách Hàng
@@ -521,11 +526,13 @@ elif menu == "Cài Đặt Hệ Thống":
             with st.form("f_k_add"):
                 kn = st.text_input("Tên KH:"); kp = st.text_input("SĐT:"); kd = st.text_input("Địa chỉ:"); kkv = st.text_input("Khu vực:"); kmap = st.text_input("Maps:")
                 if st.form_submit_button("Thêm KH"):
-                    with get_connection() as conn:
-                        cur = conn.cursor(); cur.execute("INSERT INTO khach_hang (ten_khach,sdt,dia_chi,khu_vuc,link_google_maps,nguoi_tao) VALUES(?,?,?,?,?,?)",(kn.strip(),kp,kd,kkv.strip(),kmap,st.session_state.current_user))
-                        cur.execute('SELECT last_insert_rowid()'); nid = cur.fetchone()[0]
-                        cur.execute("UPDATE khach_hang SET ma_khach_hang = ? WHERE id = ?", (f"KH{nid:04d}", nid)); conn.commit()
-                    st.rerun()
+                    try:
+                        with get_connection() as conn:
+                            cur = conn.cursor(); cur.execute("INSERT INTO khach_hang (ten_khach,sdt,dia_chi,khu_vuc,link_google_maps,nguoi_tao) VALUES(?,?,?,?,?,?)",(kn.strip(),kp,kd,kkv.strip(),kmap,st.session_state.current_user))
+                            cur.execute('SELECT last_insert_rowid()'); nid = cur.fetchone()[0]
+                            cur.execute("UPDATE khach_hang SET ma_khach_hang = ? WHERE id = ?", (f"KH{nid:04d}", nid)); conn.commit()
+                        st.success("Thêm thành công!"); st.rerun()
+                    except sqlite3.IntegrityError: st.error("Tên khách hàng này đã tồn tại!")
         with k_sub2:
             if not df_k.empty:
                 kd_dict = dict(zip(df_k['id'], df_k['ten_khach']))
@@ -534,9 +541,11 @@ elif menu == "Cài Đặt Hệ Thống":
                 with st.form("f_k_edit"):
                     ekn = st.text_input("Tên:", value=k_info['ten_khach']); ekp = st.text_input("SĐT:", value=k_info['sdt']); ekd = st.text_input("Địa chỉ:", value=k_info['dia_chi']); ekk = st.text_input("Khu vực:", value=k_info['khu_vuc']); emap = st.text_input("Maps:", value=k_info['link_google_maps'] or "")
                     if st.form_submit_button("Cập Nhật"):
-                        with get_connection() as conn: 
-                            conn.cursor().execute("UPDATE khach_hang SET ten_khach=?, sdt=?, dia_chi=?, khu_vuc=?, link_google_maps=? WHERE id=?",(ekn.strip(),ekp,ekd,ekk.strip(),emap,id_ke)); conn.commit()
-                        st.rerun()
+                        try:
+                            with get_connection() as conn: 
+                                conn.cursor().execute("UPDATE khach_hang SET ten_khach=?, sdt=?, dia_chi=?, khu_vuc=?, link_google_maps=? WHERE id=?",(ekn.strip(),ekp,ekd,ekk.strip(),emap,id_ke)); conn.commit()
+                            st.success("Cập nhật thành công!"); st.rerun()
+                        except sqlite3.IntegrityError: st.error("Tên khách hàng này đã tồn tại!")
 
     # 3. Tài Xế
     elif tab_sys == "3. Quản Lý Tài Xế":
@@ -546,9 +555,11 @@ elif menu == "Cài Đặt Hệ Thống":
             with st.form("f_v_add"):
                 nv_n = st.text_input("Tên TX:"); nv_p = st.text_input("SĐT:")
                 if st.form_submit_button("Thêm TX"):
-                    with get_connection() as conn: 
-                        conn.cursor().execute("INSERT INTO nhan_vien(ten_nhan_vien,sdt) VALUES(?,?)",(nv_n.strip(),nv_p)); conn.commit()
-                    st.rerun()
+                    try:
+                        with get_connection() as conn: 
+                            conn.cursor().execute("INSERT INTO nhan_vien(ten_nhan_vien,sdt) VALUES(?,?)",(nv_n.strip(),nv_p)); conn.commit()
+                        st.success("Thêm thành công!"); st.rerun()
+                    except sqlite3.IntegrityError: st.error("Tên tài xế này đã tồn tại!")
         with v_sub2:
             if not df_nv.empty:
                 nv_dict = dict(zip(df_nv['id'], df_nv['ten_nhan_vien']))
@@ -558,7 +569,7 @@ elif menu == "Cài Đặt Hệ Thống":
                         conn.cursor().execute("DELETE FROM nhan_vien WHERE id=?",(id_ve,)); conn.commit()
                     st.rerun()
 
-    # 4. Giá Riêng (ĐÃ VÁ LỖI MẤT NÚT VÀ LỖI INDEX)
+    # 4. Giá Riêng
     elif tab_sys == "4. Phân Quyền Giá Riêng":
         with get_connection() as conn:
             df_k = pd.read_sql_query("SELECT id, ma_khach_hang, ten_khach FROM khach_hang", conn)
@@ -603,7 +614,7 @@ elif menu == "Cài Đặt Hệ Thống":
             if st.form_submit_button("Lưu Cấu Hình"):
                 with get_connection() as conn: 
                     conn.cursor().execute("UPDATE cau_hinh_in SET ten_cua_hang=?, so_dien_thoai=?, thong_tin_ngan_hang=?, kho_giay_mac_dinh=? WHERE id=1", (ten_ch, sdt_ch, stk_ch, kho_giay)); conn.commit()
-                st.rerun()
+                st.success("Đã cập nhật!"); st.rerun()
 
     # 6. Admin
     elif tab_sys == "6. Quản Lý Tài Khoản (Admin)":
