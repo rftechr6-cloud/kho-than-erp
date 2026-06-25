@@ -17,7 +17,7 @@ import io
 # 1. TỰ ĐỘNG NHẬN DIỆN THIẾT BỊ & TỐI ƯU GIAO DIỆN
 # ==========================================
 st.set_page_config(
-    page_title="ERP Quản Lý Kho Than V6.2 - Vận Hành", 
+    page_title="ERP Quản Lý Kho Than V6.3 - Hoàn Hảo", 
     page_icon="🪨", 
     layout="wide", 
     initial_sidebar_state="expanded"
@@ -38,15 +38,7 @@ st.markdown("""
         .text-purple { color: #8b5cf6; }
         .main-header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 24px; border-radius: 12px; color: white; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
         .delay-alert { background-color: #fef2f2; border: 1px solid #fecaca; padding: 16px; border-radius: 8px; border-left: 6px solid #ef4444; color: #991b1b; font-size: 14px; margin-bottom: 15px; font-weight: 500; }
-        .ai-card { padding:12px; background:#f0fdf4; border-left:4px solid #16a34a; margin-bottom:10px; border-radius:4px; }
-        .ai-warn { background:#fffbeb; border-left:4px solid #f59e0b; }
-        .ai-danger { background:#fef2f2; border-left:4px solid #dc2626; }
-        .map-btn { display: inline-block; padding: 6px 12px; background-color: #e0f2fe; color: #0284c7; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; margin-top: 8px; }
-        .map-btn:hover { background-color: #bae6fd; }
         .invoice-box { background: #ffffff; padding: 30px; border: 1px solid #e2e8f0; border-radius: 8px; margin: 10px auto; color: #1e293b; }
-        .invoice-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        .invoice-table th, .invoice-table td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
-        .invoice-table th { background-color: #f1f5f9; text-align: left; font-weight: bold; }
         .size-a4 { max-width: 800px; }
         .size-a5 { max-width: 600px; font-size: 13px; }
         .size-80mm { max-width: 320px; font-size: 11px; padding: 10px; }
@@ -57,7 +49,7 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 # ==========================================
-# 2. BẢO MẬT KẾT NỐI GOOGLE SHEETS & SQLITE
+# 2. BẢO MẬT & ĐỒNG BỘ GOOGLE SHEETS
 # ==========================================
 try:
     SHEET_URL = st.secrets["sheet_url"]
@@ -82,11 +74,12 @@ def init_local_db():
     conn = sqlite3.connect("kho_than.db", check_same_thread=False)
     client = get_gspread_client()
     sheet = client.open_by_url(SHEET_URL)
-    
     for ws in sheet.worksheets():
         data = ws.get_all_records()
         if data:
             df = pd.DataFrame(data)
+            # Khắc phục lỗi ID rỗng từ GSheets
+            if 'id' in df.columns: df['id'] = pd.to_numeric(df['id'], errors='coerce')
             df.to_sql(ws.title, conn, if_exists='replace', index=False)
     return conn
 
@@ -98,25 +91,16 @@ def background_sync_task():
         client = get_gspread_client()
         sheet = client.open_by_url(SHEET_URL)
         tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table'", bg_conn)
-        
         for table_name in tables['name']:
             if table_name == "sqlite_sequence": continue
             df = pd.read_sql_query(f"SELECT * FROM {table_name}", bg_conn)
-            for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns:
-                df[col] = df[col].astype(str)
-                
-            try:
-                ws = sheet.worksheet(table_name)
-            except gspread.WorksheetNotFound:
-                ws = sheet.add_worksheet(title=table_name, rows=100, cols=20)
-                
+            for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns: df[col] = df[col].astype(str)
+            try: ws = sheet.worksheet(table_name)
+            except gspread.WorksheetNotFound: ws = sheet.add_worksheet(title=table_name, rows=100, cols=20)
             ws.clear()
-            if not df.empty:
-                ws.update(values=[df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist(), range_name="A1")
-    except Exception:
-        pass 
-    finally:
-        bg_conn.close()
+            if not df.empty: ws.update(values=[df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist(), range_name="A1")
+    except: pass 
+    finally: bg_conn.close()
 
 @contextmanager
 def get_connection():
@@ -130,47 +114,51 @@ def get_connection():
         def fetchone(self): return self.cursor.fetchone()
         def fetchall(self): return self.cursor.fetchall()
         def __getattr__(self, name): return getattr(self.cursor, name)
-
     class ConnectionWrapper:
         def __init__(self, connection): self.connection = connection
         def commit(self):
             self.connection.commit()
             sync_thread = threading.Thread(target=background_sync_task)
-            sync_thread.daemon = True
-            sync_thread.start()
+            sync_thread.daemon = True; sync_thread.start()
         def cursor(self): return CursorWrapper(self.connection.cursor())
         def close(self): self.connection.close()
         def __getattr__(self, name): return getattr(self.connection, name)
-    
+    try: yield ConnectionWrapper(conn)
+    finally: conn.close()
+
+# CƠ CHẾ ĐẶC TRỊ ÉP ID THỦ CÔNG - CHỐNG LỖI MAT INVOICE & DUPLICATE
+def get_next_id(table_name, cursor):
     try:
-        yield ConnectionWrapper(conn)
-    finally:
-        conn.close()
+        cursor.execute(f"SELECT MAX(id) FROM {table_name}")
+        val = cursor.fetchone()[0]
+        return 1 if pd.isna(val) or val is None else int(val) + 1
+    except: return 1
 
 def init_database():
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username VARCHAR(255) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, role VARCHAR(50) DEFAULT 'user', status VARCHAR(50) DEFAULT 'Chờ duyệt')''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username VARCHAR(255) UNIQUE, password VARCHAR(255), role VARCHAR(50), status VARCHAR(50))''')
         cursor.execute("SELECT * FROM users WHERE username='admin'")
-        if not cursor.fetchone(): cursor.execute("INSERT INTO users (username, password, role, status) VALUES (?, ?, 'admin', 'Đã duyệt')", ('admin', hash_password(st.secrets["admin_pass"])))
-        cursor.execute('''CREATE TABLE IF NOT EXISTS loai_than (id INTEGER PRIMARY KEY AUTOINCREMENT, ten_than VARCHAR(255) UNIQUE NOT NULL, gia_nhap_mac_dinh DOUBLE PRECISION DEFAULT 0, gia_mac_dinh DOUBLE PRECISION DEFAULT 0, ton_kho DOUBLE PRECISION DEFAULT 0, nguoi_tao VARCHAR(255) DEFAULT 'Hệ thống')''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS khach_hang (id INTEGER PRIMARY KEY AUTOINCREMENT, ma_khach_hang VARCHAR(50) UNIQUE, ten_khach VARCHAR(255) UNIQUE NOT NULL, sdt VARCHAR(50), dia_chi TEXT, khu_vuc VARCHAR(255) DEFAULT 'Chưa rõ', link_google_maps TEXT, nguoi_tao VARCHAR(255) DEFAULT 'Hệ thống')''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS nhan_vien (id INTEGER PRIMARY KEY AUTOINCREMENT, ten_nhan_vien VARCHAR(255) UNIQUE NOT NULL, sdt VARCHAR(50), chuc_vu VARCHAR(100) DEFAULT 'Giao hàng')''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS gia_rieng (khach_hang_id INTEGER, loai_than_id INTEGER, gia_uu_dai DOUBLE PRECISION NOT NULL, PRIMARY KEY (khach_hang_id, loai_than_id), FOREIGN KEY (khach_hang_id) REFERENCES khach_hang(id) ON DELETE CASCADE, FOREIGN KEY (loai_than_id) REFERENCES loai_than(id) ON DELETE CASCADE)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS lich_su_gia (id INTEGER PRIMARY KEY AUTOINCREMENT, khach_hang_id INTEGER, loai_than_id INTEGER, gia_cu DOUBLE PRECISION, gia_moi DOUBLE PRECISION, ngay_thay_doi TIMESTAMP, FOREIGN KEY (khach_hang_id) REFERENCES khach_hang(id) ON DELETE CASCADE, FOREIGN KEY (loai_than_id) REFERENCES loai_than(id) ON DELETE CASCADE)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS don_hang (id INTEGER PRIMARY KEY AUTOINCREMENT, ma_don_hien_thi VARCHAR(50) UNIQUE, khach_hang_id INTEGER, nhan_vien_id INTEGER, ngay_ban DATE NOT NULL, thoi_gian_tao TIMESTAMP NOT NULL, da_thanh_toan INTEGER DEFAULT 0, trang_thai_giao VARCHAR(100) DEFAULT 'Chờ giao hàng', hinh_thuc_thanh_toan VARCHAR(100) DEFAULT 'Chưa thanh toán', ghi_chu TEXT, giao_gap INTEGER DEFAULT 0, tong_tien DOUBLE PRECISION DEFAULT 0, tien_da_tra DOUBLE PRECISION DEFAULT 0, tien_con_no DOUBLE PRECISION DEFAULT 0, nguoi_tao VARCHAR(255) DEFAULT 'Hệ thống', FOREIGN KEY (khach_hang_id) REFERENCES khach_hang(id) ON DELETE CASCADE, FOREIGN KEY (nhan_vien_id) REFERENCES nhan_vien(id) ON DELETE SET NULL)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS chi_tiet_don_hang (id INTEGER PRIMARY KEY AUTOINCREMENT, don_hang_id INTEGER, loai_than_id INTEGER, so_luong DOUBLE PRECISION NOT NULL, don_gia DOUBLE PRECISION NOT NULL, FOREIGN KEY (don_hang_id) REFERENCES don_hang(id) ON DELETE CASCADE, FOREIGN KEY (loai_than_id) REFERENCES loai_than(id) ON DELETE CASCADE)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS nhap_hang (id INTEGER PRIMARY KEY AUTOINCREMENT, loai_than_id INTEGER, ngay_nhap DATE NOT NULL, so_luong DOUBLE PRECISION NOT NULL, don_gia_nhap DOUBLE PRECISION NOT NULL, nguoi_tao VARCHAR(255) DEFAULT 'Hệ thống', FOREIGN KEY (loai_than_id) REFERENCES loai_than(id) ON DELETE CASCADE)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS lich_su_thanh_toan (id INTEGER PRIMARY KEY AUTOINCREMENT, don_hang_id INTEGER, so_tien_tra DOUBLE PRECISION NOT NULL, hinh_thuc VARCHAR(100), ngay_tra TIMESTAMP, ghi_chu TEXT, nguoi_tao VARCHAR(255) DEFAULT 'Hệ thống', FOREIGN KEY (don_hang_id) REFERENCES don_hang(id) ON DELETE CASCADE)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS cau_hinh_in (id INTEGER PRIMARY KEY CHECK (id = 1), ten_cua_hang VARCHAR(255) DEFAULT 'TỔNG KHO THAN', so_dien_thoai VARCHAR(50) DEFAULT '0988.888.888', thong_tin_ngan_hang TEXT DEFAULT 'Chưa cài đặt', kho_giay_mac_dinh VARCHAR(100) DEFAULT 'A4 (Tiêu chuẩn văn phòng)')''')
+        if not cursor.fetchone(): 
+            uid = get_next_id('users', cursor)
+            cursor.execute("INSERT INTO users (id, username, password, role, status) VALUES (?, ?, ?, 'admin', 'Đã duyệt')", (uid, 'admin', hash_password(st.secrets["admin_pass"])))
+        cursor.execute('''CREATE TABLE IF NOT EXISTS loai_than (id INTEGER PRIMARY KEY, ten_than VARCHAR(255) UNIQUE, gia_nhap_mac_dinh DOUBLE PRECISION, gia_mac_dinh DOUBLE PRECISION, ton_kho DOUBLE PRECISION, nguoi_tao VARCHAR(255))''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS khach_hang (id INTEGER PRIMARY KEY, ma_khach_hang VARCHAR(50) UNIQUE, ten_khach VARCHAR(255) UNIQUE, sdt VARCHAR(50), dia_chi TEXT, khu_vuc VARCHAR(255), link_google_maps TEXT, nguoi_tao VARCHAR(255))''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS nhan_vien (id INTEGER PRIMARY KEY, ten_nhan_vien VARCHAR(255) UNIQUE, sdt VARCHAR(50), chuc_vu VARCHAR(100))''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS gia_rieng (khach_hang_id INTEGER, loai_than_id INTEGER, gia_uu_dai DOUBLE PRECISION, PRIMARY KEY (khach_hang_id, loai_than_id))''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS lich_su_gia (id INTEGER PRIMARY KEY, khach_hang_id INTEGER, loai_than_id INTEGER, gia_cu DOUBLE PRECISION, gia_moi DOUBLE PRECISION, ngay_thay_doi TIMESTAMP)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS don_hang (id INTEGER PRIMARY KEY, ma_don_hien_thi VARCHAR(50) UNIQUE, khach_hang_id INTEGER, nhan_vien_id INTEGER, ngay_ban DATE, thoi_gian_tao TIMESTAMP, da_thanh_toan INTEGER, trang_thai_giao VARCHAR(100), hinh_thuc_thanh_toan VARCHAR(100), ghi_chu TEXT, giao_gap INTEGER, tong_tien DOUBLE PRECISION, tien_da_tra DOUBLE PRECISION, tien_con_no DOUBLE PRECISION, nguoi_tao VARCHAR(255))''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS chi_tiet_don_hang (id INTEGER PRIMARY KEY, don_hang_id INTEGER, loai_than_id INTEGER, so_luong DOUBLE PRECISION, don_gia DOUBLE PRECISION)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS nhap_hang (id INTEGER PRIMARY KEY, loai_than_id INTEGER, ngay_nhap DATE, so_luong DOUBLE PRECISION, don_gia_nhap DOUBLE PRECISION, nguoi_tao VARCHAR(255), xuong_nhap VARCHAR(255))''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS lich_su_thanh_toan (id INTEGER PRIMARY KEY, don_hang_id INTEGER, so_tien_tra DOUBLE PRECISION, hinh_thuc VARCHAR(100), ngay_tra TIMESTAMP, ghi_chu TEXT, nguoi_tao VARCHAR(255))''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS cau_hinh_in (id INTEGER PRIMARY KEY, ten_cua_hang VARCHAR(255), so_dien_thoai VARCHAR(50), thong_tin_ngan_hang TEXT, kho_giay_mac_dinh VARCHAR(100))''')
         
         cursor.execute("PRAGMA table_info(nhap_hang)")
-        columns = [col[1] for col in cursor.fetchall()]
-        if 'xuong_nhap' not in columns: cursor.execute("ALTER TABLE nhap_hang ADD COLUMN xuong_nhap VARCHAR(255)")
+        if 'xuong_nhap' not in [col[1] for col in cursor.fetchall()]: cursor.execute("ALTER TABLE nhap_hang ADD COLUMN xuong_nhap VARCHAR(255)")
             
         cursor.execute("INSERT OR IGNORE INTO cau_hinh_in (id, thong_tin_ngan_hang) VALUES (1, 'Chưa cài đặt')")
         cursor.execute("SELECT id FROM khach_hang WHERE ma_khach_hang IS NULL")
-        for c in cursor.fetchall(): cursor.execute("UPDATE khach_hang SET ma_khach_hang = ? WHERE id = ?", (f"KH{c[0]:04d}", c[0]))
+        for c in cursor.fetchall(): cursor.execute("UPDATE khach_hang SET ma_khach_hang = ? WHERE id = ?", (f"KH{int(c[0]):04d}", int(c[0])))
         conn.commit()
 
 init_database()
@@ -194,17 +182,14 @@ if not st.session_state.logged_in:
         tab_login, tab_reg = st.tabs(["🔐 Đăng Nhập", "📝 Đăng Ký Tài Khoản"])
         with tab_login:
             with st.form("login_form"):
-                user = st.text_input("Tài khoản:")
-                pwd = st.text_input("Mật khẩu:", type="password")
+                user = st.text_input("Tài khoản:"); pwd = st.text_input("Mật khẩu:", type="password")
                 if st.form_submit_button("Đăng Nhập Nhận Ca", type="primary"):
                     with get_connection() as conn:
-                        res = conn.cursor()
-                        res.execute("SELECT role, status FROM users WHERE username=? AND password=?", (user, hash_password(pwd)))
+                        res = conn.cursor(); res.execute("SELECT role, status FROM users WHERE username=? AND password=?", (user, hash_password(pwd)))
                         data = res.fetchone()
                         if data:
-                            role, status = data
-                            if status == "Đã duyệt" or role == "admin":
-                                st.session_state.logged_in = True; st.session_state.current_user = user; st.session_state.user_role = role; st.rerun()
+                            if data[1] == "Đã duyệt" or data[0] == "admin":
+                                st.session_state.logged_in = True; st.session_state.current_user = user; st.session_state.user_role = data[0]; st.rerun()
                             else: st.error("Tài khoản đang chờ Admin duyệt.")
                         else: st.error("Sai tài khoản hoặc mật khẩu!")
         with tab_reg:
@@ -216,10 +201,11 @@ if not st.session_state.logged_in:
                     else:
                         try:
                             with get_connection() as conn:
-                                conn.cursor().execute("INSERT INTO users (username, password, role, status) VALUES (?, ?, 'user', 'Chờ duyệt')", (n_user, hash_password(n_pwd)))
+                                uid = get_next_id('users', conn.cursor())
+                                conn.cursor().execute("INSERT INTO users (id, username, password, role, status) VALUES (?, ?, ?, 'user', 'Chờ duyệt')", (uid, n_user, hash_password(n_pwd)))
                                 conn.commit()
-                            st.success("Đã gửi yêu cầu!")
-                        except sqlite3.IntegrityError: st.error("Tài khoản này đã tồn tại!")
+                            st.success("Đã gửi yêu cầu đăng ký!")
+                        except: st.error("Tài khoản này đã tồn tại!")
     st.stop()
 
 def sinh_ma_don_hang_theo_ngay(ngay_str):
@@ -227,8 +213,6 @@ def sinh_ma_don_hang_theo_ngay(ngay_str):
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM don_hang WHERE ngay_ban = ?", (ngay_str,))
         return f"DH{datetime.strptime(ngay_str, '%Y-%m-%d').strftime('%d%m%y')}-{(cursor.fetchone()[0] + 1):03d}"
-
-MAP_COORDS = { "Thái Nguyên": {"lat": 21.5942, "lon": 105.8443}, "Hà Nội": {"lat": 21.0285, "lon": 105.8542}, "Bắc Giang": {"lat": 21.2731, "lon": 106.1946}, "Vĩnh Phúc": {"lat": 21.3089, "lon": 105.6049}, "Sông Công": {"lat": 21.4883, "lon": 105.8465}, "Phổ Yên": {"lat": 21.4178, "lon": 105.8661}, "Điềm Thụy": {"lat": 21.4833, "lon": 105.9500}, "Quế Võ": {"lat": 21.1352, "lon": 106.1558}, "Yên Phong": {"lat": 21.2069, "lon": 105.9781}, "Khác": {"lat": 21.0, "lon": 105.5} }
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2850/2850785.png", width=80)
@@ -285,16 +269,6 @@ if menu == "Thống Kê (HQ)":
         for _, r in df_group[df_group['trang_thai_giao'] != 'Đã hoàn thành'].iterrows():
             hours_elapsed = (now_dt - pd.to_datetime(r['thoi_gian_tao'])).total_seconds() / 3600
             if hours_elapsed > 4: st.markdown(f"<div class='delay-alert'>🚨 <b>ĐƠN TRỄ QUÁ 4 GIỜ (Mã {r['ma_don_hien_thi']})</b><br>• Tài xế: {r['ten_nhan_vien'] or 'Chưa phân xe'} | Đối tác: {r['ten_khach']} | Người lên đơn: <b>{r['nguoi_tao']}</b> | Chờ: {hours_elapsed:.1f} giờ</div>", unsafe_allow_html=True)
-
-    if not df_flat.empty:
-        st.markdown("---")
-        st.markdown("### 🗺️ Bản Đồ Phân Bổ Mở Rộng Thị Trường")
-        map_data = df_flat.groupby('khu_vuc')['so_luong'].sum().reset_index()
-        map_data['lat'] = map_data['khu_vuc'].apply(lambda x: MAP_COORDS.get(x, MAP_COORDS["Khác"])['lat'])
-        map_data['lon'] = map_data['khu_vuc'].apply(lambda x: MAP_COORDS.get(x, MAP_COORDS["Khác"])['lon'])
-        fig_map = px.scatter_mapbox(map_data, lat="lat", lon="lon", size="so_luong", color="khu_vuc", hover_name="khu_vuc", color_discrete_sequence=px.colors.qualitative.G10, zoom=7, height=400)
-        fig_map.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
-        st.plotly_chart(fig_map, use_container_width=True)
 
 # ==========================================
 # PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU
@@ -363,7 +337,7 @@ elif menu == "Lập Đơn & In Phiếu":
             
             if st.button("➕ Thêm vào phiếu"):
                 if any(i['loai_than_id'] == t_id for i in st.session_state.cart): st.error("Mã này đã có trong giỏ!")
-                else: st.session_state.cart.append({'loai_than_id': t_id, 'ten_than': than_dict.get(t_id), 'so_luong': sl, 'don_gia': dg, 'thanh_tien': sl * dg}); st.rerun()
+                else: st.session_state.cart.append({'loai_than_id': int(t_id), 'ten_than': than_dict.get(t_id), 'so_luong': sl, 'don_gia': dg, 'thanh_tien': sl * dg}); st.rerun()
 
             if st.session_state.cart:
                 df_c = pd.DataFrame(st.session_state.cart)
@@ -384,16 +358,17 @@ elif menu == "Lập Đơn & In Phiếu":
                         ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S'); ma_don_final = sinh_ma_don_hang_theo_ngay(today_str); is_gap = 1 if giao_gap else 0
                         with get_connection() as conn:
                             cur = conn.cursor()
-                            cur.execute('INSERT INTO don_hang (ma_don_hien_thi, khach_hang_id, ngay_ban, thoi_gian_tao, trang_thai_giao, ghi_chu, giao_gap, tong_tien, tien_con_no, nguoi_tao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', (ma_don_final, int(khach_id), today_str, ts, 'Chờ giao hàng', g_chu, is_gap, total_val, total_val, st.session_state.current_user))
-                            cur.execute('SELECT last_insert_rowid()'); new_id = cur.fetchone()[0]
+                            new_id = get_next_id('don_hang', cur)
+                            cur.execute('INSERT INTO don_hang (id, ma_don_hien_thi, khach_hang_id, ngay_ban, thoi_gian_tao, trang_thai_giao, ghi_chu, giao_gap, tong_tien, tien_con_no, nguoi_tao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', (new_id, ma_don_final, int(khach_id), today_str, ts, 'Chờ giao hàng', g_chu, is_gap, total_val, total_val, st.session_state.current_user))
                             for i in st.session_state.cart:
-                                cur.execute('INSERT INTO chi_tiet_don_hang (don_hang_id, loai_than_id, so_luong, don_gia) VALUES (?, ?, ?, ?)', (int(new_id), int(i['loai_than_id']), i['so_luong'], i['don_gia']))
+                                ct_id = get_next_id('chi_tiet_don_hang', cur)
+                                cur.execute('INSERT INTO chi_tiet_don_hang (id, don_hang_id, loai_than_id, so_luong, don_gia) VALUES (?, ?, ?, ?, ?)', (ct_id, new_id, int(i['loai_than_id']), i['so_luong'], i['don_gia']))
                                 cur.execute("UPDATE loai_than SET ton_kho = ton_kho - ? WHERE id = ?", (i['so_luong'], int(i['loai_than_id'])))
                             conn.commit()
                         st.session_state.cart = []; st.session_state.last_order_id = new_id; st.rerun()
 
 # ==========================================
-# PHÂN HỆ 3: GIAO HÀNG & SỔ NỢ
+# PHÂN HỆ 3: GIAO HÀNG & SỔ NỢ (ĐÃ VÁ LỖI DUPLICATE FORM)
 # ==========================================
 elif menu == "Giao Hàng & Vận Tải":
     st.markdown("### 🚚 Bàn Giao Lộ Trình & Nghiệm Thu")
@@ -405,8 +380,8 @@ elif menu == "Giao Hàng & Vận Tải":
             with get_connection() as conn: df_cho = pd.read_sql_query("SELECT dh.id, dh.ma_don_hien_thi, kh.ten_khach, kh.dia_chi, kh.link_google_maps FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id WHERE dh.trang_thai_giao = 'Chờ giao hàng'", conn.connection)
             if df_cho.empty: st.success("Không có đơn chờ đi giao.")
             else:
-                for _, r in df_cho.iterrows():
-                    with st.form(f"giao_xe_{r['id']}"):
+                for idx, r in df_cho.iterrows():
+                    with st.form(f"giao_xe_form_{idx}_{r['id']}"):
                         st.write(f"📦 Đơn **{r['ma_don_hien_thi']}** - Khách: **{r['ten_khach']}**")
                         if r['link_google_maps']: st.markdown(f"[📍 Mở Bản Đồ Đường Đi]({r['link_google_maps']})")
                         
@@ -423,8 +398,8 @@ elif menu == "Giao Hàng & Vận Tải":
             with get_connection() as conn: df_dang = pd.read_sql_query("SELECT dh.id, dh.ma_don_hien_thi, dh.tong_tien, kh.ten_khach, nv.ten_nhan_vien FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id WHERE dh.trang_thai_giao = 'Đang giao'", conn.connection)
             if df_dang.empty: st.info("Chưa có xe nào đang chạy.")
             else:
-                for _, r in df_dang.iterrows():
-                    with st.form(f"form_done_{r['id']}"):
+                for idx, r in df_dang.iterrows():
+                    with st.form(f"form_done_gh_{idx}_{r['id']}"):
                         st.write(f"🚚 Đơn **{r['ma_don_hien_thi']}** - Khách: {r['ten_khach']} | Tổng: **{r['tong_tien']:,.0f} đ**")
                         tien_tra_ngay = st.number_input("Khách trả ngay (đ):", min_value=0.0, max_value=float(r['tong_tien']), value=float(r['tong_tien']), step=10000.0)
                         pt_tt = st.selectbox("Hình thức thanh toán:", ["Chuyển khoản", "Tiền mặt"])
@@ -435,7 +410,9 @@ elif menu == "Giao Hàng & Vận Tải":
                             with get_connection() as c_update:
                                 cur = c_update.cursor()
                                 cur.execute("UPDATE don_hang SET trang_thai_giao='Đã hoàn thành', da_thanh_toan=?, hinh_thuc_thanh_toan=?, tien_da_tra=?, tien_con_no=? WHERE id=?", (is_paid, ht_luu, tien_tra_ngay, tien_con_no_lai, int(r['id'])))
-                                if tien_tra_ngay > 0: cur.execute("INSERT INTO lich_su_thanh_toan (don_hang_id, so_tien_tra, hinh_thuc, ngay_tra, ghi_chu, nguoi_tao) VALUES (?,?,?,?,?,?)", (int(r['id']), tien_tra_ngay, pt_tt, ts, "Thu tại bãi", st.session_state.current_user))
+                                if tien_tra_ngay > 0: 
+                                    lsid = get_next_id('lich_su_thanh_toan', cur)
+                                    cur.execute("INSERT INTO lich_su_thanh_toan (id, don_hang_id, so_tien_tra, hinh_thuc, ngay_tra, ghi_chu, nguoi_tao) VALUES (?,?,?,?,?,?,?)", (lsid, int(r['id']), tien_tra_ngay, pt_tt, ts, "Thu tại bãi", st.session_state.current_user))
                                 c_update.commit()
                             st.success("Hoàn thành!")
                             st.rerun()
@@ -456,8 +433,10 @@ elif menu == "Sổ Quản Lý Nợ":
             if st.form_submit_button("Xác Nhận Khấu Trừ Nợ"):
                 ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 with get_connection() as c_update:
-                    c_update.cursor().execute("UPDATE don_hang SET tien_con_no=tien_con_no-?, tien_da_tra=tien_da_tra+?, da_thanh_toan=CASE WHEN tien_con_no-? <= 0 THEN 1 ELSE 0 END WHERE id=?", (tien_thu, tien_thu, tien_thu, int(id_don_no)))
-                    c_update.cursor().execute("INSERT INTO lich_su_thanh_toan (don_hang_id, so_tien_tra, hinh_thuc, ngay_tra, ghi_chu, nguoi_tao) VALUES (?,?,?,?,?,?)", (int(id_don_no), tien_thu, ht_thu, ts, "Thu nợ", st.session_state.current_user))
+                    cur = c_update.cursor()
+                    cur.execute("UPDATE don_hang SET tien_con_no=tien_con_no-?, tien_da_tra=tien_da_tra+?, da_thanh_toan=CASE WHEN tien_con_no-? <= 0 THEN 1 ELSE 0 END WHERE id=?", (tien_thu, tien_thu, tien_thu, int(id_don_no)))
+                    lsid = get_next_id('lich_su_thanh_toan', cur)
+                    cur.execute("INSERT INTO lich_su_thanh_toan (id, don_hang_id, so_tien_tra, hinh_thuc, ngay_tra, ghi_chu, nguoi_tao) VALUES (?,?,?,?,?,?,?)", (lsid, int(id_don_no), tien_thu, ht_thu, ts, "Thu nợ", st.session_state.current_user))
                     c_update.commit()
                 st.success("Đã gạch nợ!"); st.rerun()
 
@@ -489,9 +468,10 @@ elif menu == "Cài Đặt Hệ Thống":
                 if st.form_submit_button("Thêm"):
                     try:
                         with get_connection() as conn: 
-                            conn.cursor().execute("INSERT INTO loai_than(ten_than,gia_nhap_mac_dinh,gia_mac_dinh,ton_kho,nguoi_tao) VALUES(?,?,?,?,?)", (n.strip(),pn,p,0.0,st.session_state.current_user)); conn.commit()
+                            tid = get_next_id('loai_than', conn.cursor())
+                            conn.cursor().execute("INSERT INTO loai_than(id, ten_than, gia_nhap_mac_dinh, gia_mac_dinh, ton_kho, nguoi_tao) VALUES(?,?,?,?,?,?)", (tid, n.strip(), pn, p, 0.0, st.session_state.current_user)); conn.commit()
                         st.success("Thêm thành công!"); st.rerun()
-                    except sqlite3.IntegrityError: st.error("Tên loại than này đã tồn tại!")
+                    except: st.error("Tên loại than này đã tồn tại!")
         with t_sub2:
             if not df_t.empty:
                 than_dict = dict(zip(df_t['id'], df_t['ten_than']))
@@ -504,7 +484,7 @@ elif menu == "Cài Đặt Hệ Thống":
                             with get_connection() as conn: 
                                 conn.cursor().execute("UPDATE loai_than SET ten_than=?, gia_mac_dinh=? WHERE id=?", (en.strip(), ep, int(id_e))); conn.commit()
                             st.success("Cập nhật thành công!"); st.rerun()
-                        except sqlite3.IntegrityError: st.error("Tên loại than này đã tồn tại!")
+                        except: st.error("Tên loại than này đã tồn tại!")
         with t_sub3:
             st.subheader("📦 Nhập hàng vào kho")
             with st.form("f_c_in"):
@@ -515,7 +495,8 @@ elif menu == "Cài Đặt Hệ Thống":
                     p_in = st.number_input("Giá Nhập (đ):", value=1500)
                     if st.form_submit_button("Xác nhận nhập kho"):
                         with get_connection() as conn: 
-                            conn.cursor().execute('''INSERT INTO nhap_hang(loai_than_id, ngay_nhap, xuong_nhap, so_luong, don_gia_nhap, nguoi_tao) VALUES(?,?,?,?,?,?)''', (int(id_n), today_str, xuong, w_in, p_in, st.session_state.current_user))
+                            nid = get_next_id('nhap_hang', conn.cursor())
+                            conn.cursor().execute('''INSERT INTO nhap_hang(id, loai_than_id, ngay_nhap, xuong_nhap, so_luong, don_gia_nhap, nguoi_tao) VALUES(?,?,?,?,?,?,?)''', (nid, int(id_n), today_str, xuong, w_in, p_in, st.session_state.current_user))
                             conn.cursor().execute("UPDATE loai_than SET ton_kho=ton_kho+? WHERE id=?", (w_in, int(id_n))); conn.commit()
                         st.success("Nhập kho thành công!"); st.rerun()
             st.dataframe(df_nhap, use_container_width=True, hide_index=True)
@@ -529,9 +510,10 @@ elif menu == "Cài Đặt Hệ Thống":
                 if st.form_submit_button("Thêm KH"):
                     try:
                         with get_connection() as conn:
-                            cur = conn.cursor(); cur.execute("INSERT INTO khach_hang (ten_khach,sdt,dia_chi,khu_vuc,link_google_maps,nguoi_tao) VALUES(?,?,?,?,?,?)",(kn.strip(),kp,kd,kkv.strip(),kmap,st.session_state.current_user))
-                            cur.execute('SELECT last_insert_rowid()'); nid = cur.fetchone()[0]
-                            cur.execute("UPDATE khach_hang SET ma_khach_hang = ? WHERE id = ?", (f"KH{nid:04d}", int(nid))); conn.commit()
+                            cur = conn.cursor()
+                            nid = get_next_id('khach_hang', cur)
+                            cur.execute("INSERT INTO khach_hang (id, ma_khach_hang, ten_khach, sdt, dia_chi, khu_vuc, link_google_maps, nguoi_tao) VALUES(?,?,?,?,?,?,?,?)", (nid, f"KH{nid:04d}", kn.strip(), kp, kd, kkv.strip(), kmap, st.session_state.current_user))
+                            conn.commit()
                         st.success("Thêm thành công!"); st.rerun()
                     except sqlite3.IntegrityError: st.error("Tên khách hàng này đã tồn tại!")
         with k_sub2:
@@ -557,7 +539,8 @@ elif menu == "Cài Đặt Hệ Thống":
                 if st.form_submit_button("Thêm TX"):
                     try:
                         with get_connection() as conn: 
-                            conn.cursor().execute("INSERT INTO nhan_vien(ten_nhan_vien,sdt) VALUES(?,?)",(nv_n.strip(),nv_p)); conn.commit()
+                            tid = get_next_id('nhan_vien', conn.cursor())
+                            conn.cursor().execute("INSERT INTO nhan_vien(id, ten_nhan_vien, sdt) VALUES(?,?,?)", (tid, nv_n.strip(), nv_p)); conn.commit()
                         st.success("Thêm thành công!"); st.rerun()
                     except sqlite3.IntegrityError: st.error("Tên tài xế này đã tồn tại!")
         with v_sub2:
@@ -597,7 +580,9 @@ elif menu == "Cài Đặt Hệ Thống":
                         ts_change = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                         with get_connection() as conn:
                             cur = conn.cursor()
-                            if old_p != g_new: cur.execute("INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, ngay_thay_doi) VALUES (?,?,?,?,?)", (int(id_k), int(id_t), old_p, g_new, ts_change))
+                            if old_p != g_new: 
+                                lsgid = get_next_id('lich_su_gia', cur)
+                                cur.execute("INSERT INTO lich_su_gia (id, khach_hang_id, loai_than_id, gia_cu, gia_moi, ngay_thay_doi) VALUES (?,?,?,?,?,?)", (lsgid, int(id_k), int(id_t), old_p, g_new, ts_change))
                             cur.execute("INSERT INTO gia_rieng (khach_hang_id, loai_than_id, gia_uu_dai) VALUES (?,?,?) ON CONFLICT (khach_hang_id, loai_than_id) DO UPDATE SET gia_uu_dai = EXCLUDED.gia_uu_dai", (int(id_k), int(id_t), g_new))
                             conn.commit()
                         st.success("Đã lưu!"); st.rerun()
