@@ -19,20 +19,23 @@ def to_int(val):
     try: return int(float(val))
     except (ValueError, TypeError): return 0
 
+def to_float(val):
+    try: return float(val)
+    except (ValueError, TypeError): return 0.0
+
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 # ==========================================
-# 1. TỐI ƯU GIAO DIỆN
+# 1. TỐI ƯU GIAO DIỆN & STYLE CHUYÊN NGHIỆP
 # ==========================================
-st.set_page_config(page_title="ERP Kho Than V7.0", page_icon="🪨", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="ERP Kho Than V8.0", page_icon="🪨", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
         html, body, [data-testid="stAppViewContainer"] { background-color: #f8fafc; font-family: "Inter", -apple-system, sans-serif; }
-        .kpi-card { background: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-top: 4px solid #3b82f6; margin-bottom: 20px; transition: transform 0.2s ease, box-shadow 0.2s ease; }
-        .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 8px 15px rgba(0,0,0,0.1); }
-        .kpi-label { font-size: 13px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; }
+        .kpi-card { background: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-top: 4px solid #3b82f6; margin-bottom: 20px; }
+        .kpi-label { font-size: 13px; color: #64748b; font-weight: 600; text-transform: uppercase; margin-bottom: 5px; }
         .kpi-value { font-size: 28px; color: #0f172a; font-weight: 800; }
         .border-green { border-top-color: #10b981; }
         .border-red { border-top-color: #ef4444; }
@@ -40,12 +43,17 @@ st.markdown("""
         .text-green { color: #10b981; }
         .text-red { color: #ef4444; }
         .text-purple { color: #8b5cf6; }
-        .main-header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 24px; border-radius: 12px; color: white; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
-        .delay-alert { background-color: #fef2f2; border: 1px solid #fecaca; padding: 16px; border-radius: 8px; border-left: 6px solid #ef4444; color: #991b1b; font-size: 14px; margin-bottom: 15px; font-weight: 500; }
+        .main-header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 24px; border-radius: 12px; color: white; margin-bottom: 25px; }
         .invoice-box { background: #ffffff; padding: 30px; border: 1px solid #e2e8f0; border-radius: 8px; margin: 10px auto; color: #1e293b; }
         .invoice-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         .invoice-table th, .invoice-table td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
         .invoice-table th { background-color: #f1f5f9; text-align: left; font-weight: bold; }
+        
+        /* Chỉnh lại giao diện List cho chuyên nghiệp */
+        .list-header { font-weight: bold; color: #475569; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0; margin-bottom: 10px; }
+        .list-row { padding: 10px 0; border-bottom: 1px solid #f1f5f9; align-items: center; }
+        .list-row:hover { background-color: #f8fafc; }
+        div[data-testid="stButton"] button { padding: 2px 10px; font-size: 13px; border-radius: 6px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -361,7 +369,8 @@ elif menu == "Giao Hàng & Vận Tải":
             else:
                 for idx, r in df_cho.iterrows():
                     with get_connection() as conn: 
-                        tong_kg = pd.read_sql_query(f"SELECT SUM(so_luong) FROM chi_tiet_don_hang WHERE don_hang_id={to_int(r['id'])}", conn.connection).iloc[0,0]
+                        tong_kg_raw = pd.read_sql_query(f"SELECT SUM(so_luong) FROM chi_tiet_don_hang WHERE don_hang_id={to_int(r['id'])}", conn.connection).iloc[0,0]
+                        tong_kg = to_float(tong_kg_raw)
                     
                     with st.expander(f"📦 Đơn {r['ma_don_hien_thi']} - Khách: {r['ten_khach']} | {tong_kg:,.0f} kg", expanded=True):
                         with st.form(f"giao_xe_{idx}_{to_int(r['id'])}"):
@@ -427,7 +436,7 @@ elif menu == "Lịch Sử Đơn Hàng":
         st.download_button("📥 XUẤT BÁO CÁO EXCEL", data=df_his.to_csv(index=False, encoding='utf-8-sig'), file_name=f"Lich_Su_Giao_{today_str}.csv", mime="text/csv")
 
 # ==========================================
-# PHÂN HỆ 5: QUẢN LÝ CẤU HÌNH (ĐÃ THÊM DANH SÁCH & NÚT XÓA)
+# PHÂN HỆ 5: QUẢN LÝ CẤU HÌNH (GIAO DIỆN CHUYÊN NGHIỆP INLINE)
 # ==========================================
 elif menu == "Cài Đặt Hệ Thống":
     st.markdown("### ⚙️ Cài Đặt Danh Mục Cơ Sở Dữ Liệu")
@@ -457,15 +466,18 @@ elif menu == "Cài Đặt Hệ Thống":
             if not df_t.empty:
                 than_dict = dict(zip(df_t['id'], df_t['ten_than']))
                 id_e = st.selectbox("Chọn mã than:", options=list(than_dict.keys()), format_func=lambda x: than_dict.get(x))
-                with get_connection() as conn: info = pd.read_sql_query(f"SELECT * FROM loai_than WHERE id={to_int(id_e)}", conn.connection).iloc[0]
-                with st.form("f_c_edit"):
-                    en = st.text_input("Tên mới:", value=info['ten_than']); ep = st.number_input("Giá bán mới:", value=float(info['gia_mac_dinh']))
-                    if st.form_submit_button("Cập Nhật"):
-                        try:
-                            with get_connection() as conn: 
-                                conn.execute("UPDATE loai_than SET ten_than=?, gia_mac_dinh=? WHERE id=?", (en.strip(), ep, to_int(id_e))); conn.commit()
-                            st.success("Cập nhật thành công!"); st.rerun()
-                        except: st.error("Tên loại than này đã tồn tại!")
+                if id_e:
+                    with get_connection() as conn: query_df = pd.read_sql_query(f"SELECT * FROM loai_than WHERE id={to_int(id_e)}", conn.connection)
+                    if not query_df.empty:
+                        info = query_df.iloc[0]
+                        with st.form("f_c_edit"):
+                            en = st.text_input("Tên mới:", value=info['ten_than']); ep = st.number_input("Giá bán mới:", value=float(info['gia_mac_dinh']))
+                            if st.form_submit_button("Cập Nhật"):
+                                try:
+                                    with get_connection() as conn: 
+                                        conn.execute("UPDATE loai_than SET ten_than=?, gia_mac_dinh=? WHERE id=?", (en.strip(), ep, to_int(id_e))); conn.commit()
+                                    st.success("Cập nhật thành công!"); st.rerun()
+                                except: st.error("Tên loại than này đã tồn tại!")
         with t_sub3:
             st.subheader("📦 Nhập hàng vào kho")
             with st.form("f_c_in"):
@@ -484,21 +496,27 @@ elif menu == "Cài Đặt Hệ Thống":
             st.dataframe(df_nhap, use_container_width=True, hide_index=True)
             
         st.markdown("---")
-        st.markdown("#### 📋 DANH MỤC THAN VÀ TỒN KHO HIỆN TẠI")
+        st.markdown("#### 📋 DANH MỤC THAN VÀ NÚT XÓA NHANH")
         if not df_t_show.empty: 
-            st.dataframe(df_t_show.drop(columns=['id']).style.format({'Giá Nhập (đ)': '{:,.0f}', 'Giá Bán (đ)': '{:,.0f}', 'Tồn Kho (kg)': '{:,.0f}'}), use_container_width=True, hide_index=True)
+            # Giao diện hàng cột chuẩn Enterprise
+            c1, c2, c3, c4, c5 = st.columns([3, 2, 2, 2, 1])
+            c1.markdown("<div class='list-header'>Tên Loại Than</div>", unsafe_allow_html=True)
+            c2.markdown("<div class='list-header'>Giá Nhập (đ)</div>", unsafe_allow_html=True)
+            c3.markdown("<div class='list-header'>Giá Bán (đ)</div>", unsafe_allow_html=True)
+            c4.markdown("<div class='list-header'>Tồn Kho (kg)</div>", unsafe_allow_html=True)
+            c5.markdown("<div class='list-header'>Thao tác</div>", unsafe_allow_html=True)
             
-            # --- NÚT XÓA LOẠI THAN ---
-            del_than_col1, del_than_col2 = st.columns([3, 1])
-            with del_than_col1:
-                than_del_dict = dict(zip(df_t_show['id'], df_t_show['Tên Loại Than']))
-                id_than_xoa = st.selectbox("CHỌN LOẠI THAN MUỐN XÓA KHỎI HỆ THỐNG:", options=list(than_del_dict.keys()), format_func=lambda x: than_del_dict.get(x))
-            with del_than_col2:
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("❌ XÓA LOẠI THAN NÀY", type="primary"):
-                    with get_connection() as conn:
-                        conn.execute("DELETE FROM loai_than WHERE id=?", (to_int(id_than_xoa),)); conn.commit()
-                    st.success("Đã xóa loại than thành công!"); st.rerun()
+            for idx, r in df_t_show.iterrows():
+                cc1, cc2, cc3, cc4, cc5 = st.columns([3, 2, 2, 2, 1])
+                cc1.markdown(f"<div class='list-row'>{r['Tên Loại Than']}</div>", unsafe_allow_html=True)
+                cc2.markdown(f"<div class='list-row'>{r['Giá Nhập (đ)']:,.0f}</div>", unsafe_allow_html=True)
+                cc3.markdown(f"<div class='list-row'>{r['Giá Bán (đ)']:,.0f}</div>", unsafe_allow_html=True)
+                cc4.markdown(f"<div class='list-row'>{r['Tồn Kho (kg)']:,.0f}</div>", unsafe_allow_html=True)
+                with cc5:
+                    if st.button("❌ Xóa", key=f"del_t_{r['id']}"):
+                        with get_connection() as conn:
+                            conn.execute("DELETE FROM loai_than WHERE id=?", (to_int(r['id']),)); conn.commit()
+                        st.rerun()
 
     # ------------------ 2. KHÁCH HÀNG ------------------
     elif tab_sys == "2. Quản Lý Khách Hàng":
@@ -520,32 +538,38 @@ elif menu == "Cài Đặt Hệ Thống":
             if not df_k.empty:
                 kd_dict = dict(zip(df_k['id'], df_k['ten_khach']))
                 id_ke = st.selectbox("Hồ sơ KH:", options=list(kd_dict.keys()), format_func=lambda x: kd_dict.get(x))
-                k_info = df_k[df_k['id'] == id_ke].iloc[0]
-                with st.form("f_k_edit"):
-                    ekn = st.text_input("Tên:", value=k_info['ten_khach']); ekp = st.text_input("SĐT:", value=k_info['sdt']); ekd = st.text_input("Địa chỉ:", value=k_info['dia_chi']); ekk = st.text_input("Khu vực:", value=k_info['khu_vuc']); emap = st.text_input("Maps:", value=k_info['link_google_maps'] or "")
-                    if st.form_submit_button("Cập Nhật"):
-                        try:
-                            with get_connection() as conn: 
-                                conn.execute("UPDATE khach_hang SET ten_khach=?, sdt=?, dia_chi=?, khu_vuc=?, link_google_maps=? WHERE id=?",(ekn.strip(),ekp,ekd,ekk.strip(),emap,to_int(id_ke))); conn.commit()
-                            st.success("Cập nhật thành công!"); st.rerun()
-                        except sqlite3.IntegrityError: st.error("Tên khách hàng này đã tồn tại!")
+                if id_ke:
+                    k_info = df_k[df_k['id'] == id_ke].iloc[0]
+                    with st.form("f_k_edit"):
+                        ekn = st.text_input("Tên:", value=k_info['ten_khach']); ekp = st.text_input("SĐT:", value=k_info['sdt']); ekd = st.text_input("Địa chỉ:", value=k_info['dia_chi']); ekk = st.text_input("Khu vực:", value=k_info['khu_vuc']); emap = st.text_input("Maps:", value=k_info['link_google_maps'] or "")
+                        if st.form_submit_button("Cập Nhật"):
+                            try:
+                                with get_connection() as conn: 
+                                    conn.execute("UPDATE khach_hang SET ten_khach=?, sdt=?, dia_chi=?, khu_vuc=?, link_google_maps=? WHERE id=?",(ekn.strip(),ekp,ekd,ekk.strip(),emap,to_int(id_ke))); conn.commit()
+                                st.success("Cập nhật thành công!"); st.rerun()
+                            except sqlite3.IntegrityError: st.error("Tên khách hàng này đã tồn tại!")
                         
         st.markdown("---")
-        st.markdown("#### 📋 DANH SÁCH HỒ SƠ KHÁCH HÀNG")
+        st.markdown("#### 📋 DANH SÁCH KHÁCH HÀNG VÀ NÚT XÓA NHANH")
         if not df_k.empty: 
-            st.dataframe(df_k.drop(columns=['id', 'link_google_maps']).rename(columns={'ma_khach_hang':'Mã KH', 'ten_khach':'Tên Khách Hàng', 'sdt':'SĐT', 'dia_chi':'Địa Chỉ', 'khu_vuc':'Khu Vực'}), use_container_width=True, hide_index=True)
+            c1, c2, c3, c4, c5 = st.columns([1.5, 3, 2, 4, 1.5])
+            c1.markdown("<div class='list-header'>Mã KH</div>", unsafe_allow_html=True)
+            c2.markdown("<div class='list-header'>Tên Khách</div>", unsafe_allow_html=True)
+            c3.markdown("<div class='list-header'>SĐT</div>", unsafe_allow_html=True)
+            c4.markdown("<div class='list-header'>Địa Chỉ</div>", unsafe_allow_html=True)
+            c5.markdown("<div class='list-header'>Thao tác</div>", unsafe_allow_html=True)
             
-            # --- NÚT XÓA KHÁCH HÀNG ---
-            del_kh_col1, del_kh_col2 = st.columns([3, 1])
-            with del_kh_col1:
-                kh_del_dict = dict(zip(df_k['id'], df_k['ten_khach']))
-                id_kh_xoa = st.selectbox("CHỌN KHÁCH HÀNG MUỐN XÓA:", options=list(kh_del_dict.keys()), format_func=lambda x: kh_del_dict.get(x))
-            with del_kh_col2:
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("❌ XÓA KHÁCH HÀNG NÀY", type="primary"):
-                    with get_connection() as conn:
-                        conn.execute("DELETE FROM khach_hang WHERE id=?", (to_int(id_kh_xoa),)); conn.commit()
-                    st.success("Đã xóa khách hàng thành công!"); st.rerun()
+            for idx, r in df_k.iterrows():
+                cc1, cc2, cc3, cc4, cc5 = st.columns([1.5, 3, 2, 4, 1.5])
+                cc1.markdown(f"<div class='list-row'>{r['ma_khach_hang']}</div>", unsafe_allow_html=True)
+                cc2.markdown(f"<div class='list-row'>{r['ten_khach']}</div>", unsafe_allow_html=True)
+                cc3.markdown(f"<div class='list-row'>{r['sdt']}</div>", unsafe_allow_html=True)
+                cc4.markdown(f"<div class='list-row'>{r['dia_chi']}</div>", unsafe_allow_html=True)
+                with cc5:
+                    if st.button("❌ Xóa", key=f"del_kh_{r['id']}"):
+                        with get_connection() as conn:
+                            conn.execute("DELETE FROM khach_hang WHERE id=?", (to_int(r['id']),)); conn.commit()
+                        st.rerun()
 
     # ------------------ 3. TÀI XẾ ------------------
     elif tab_sys == "3. Quản Lý Tài Xế":
@@ -561,20 +585,22 @@ elif menu == "Cài Đặt Hệ Thống":
                 except sqlite3.IntegrityError: st.error("Tên tài xế này đã tồn tại!")
                     
         st.markdown("---")
-        st.markdown("#### 📋 ĐỘI NGŨ TÀI XẾ VẬN TẢI")
+        st.markdown("#### 📋 ĐỘI NGŨ TÀI XẾ VÀ NÚT XÓA NHANH")
         if not df_nv.empty: 
-            st.dataframe(df_nv.drop(columns=['id']).rename(columns={'ten_nhan_vien':'Họ Tên Tài Xế', 'sdt':'Số Điện Thoại'}), use_container_width=True, hide_index=True)
+            c1, c2, c3 = st.columns([4, 4, 2])
+            c1.markdown("<div class='list-header'>Họ Tên Tài Xế</div>", unsafe_allow_html=True)
+            c2.markdown("<div class='list-header'>Số Điện Thoại</div>", unsafe_allow_html=True)
+            c3.markdown("<div class='list-header'>Thao tác</div>", unsafe_allow_html=True)
             
-            # --- NÚT SỬA & XÓA TÀI XẾ ---
-            tx_dict = dict(zip(df_nv['id'], df_nv['ten_nhan_vien']))
-            id_ve = st.selectbox("CHỌN TÀI XẾ CẦN CHỈNH SỬA / XÓA:", options=list(tx_dict.keys()), format_func=lambda x: tx_dict.get(x))
-            
-            tx_col1, tx_col2 = st.columns(2)
-            with tx_col1:
-                if st.button("❌ XÓA TÀI XẾ NÀY", type="primary"):
-                    with get_connection() as conn: 
-                        conn.execute("DELETE FROM nhan_vien WHERE id=?",(to_int(id_ve),)); conn.commit()
-                    st.rerun()
+            for idx, r in df_nv.iterrows():
+                cc1, cc2, cc3 = st.columns([4, 4, 2])
+                cc1.markdown(f"<div class='list-row'>{r['ten_nhan_vien']}</div>", unsafe_allow_html=True)
+                cc2.markdown(f"<div class='list-row'>{r['sdt']}</div>", unsafe_allow_html=True)
+                with cc3:
+                    if st.button("❌ Xóa", key=f"del_tx_{r['id']}"):
+                        with get_connection() as conn:
+                            conn.execute("DELETE FROM nhan_vien WHERE id=?", (to_int(r['id']),)); conn.commit()
+                        st.rerun()
 
     # ------------------ 4. GIÁ RIÊNG ------------------
     elif tab_sys == "4. Phân Quyền Giá Riêng":
