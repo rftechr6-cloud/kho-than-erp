@@ -14,10 +14,19 @@ from streamlit_option_menu import option_menu
 import io
 
 # ==========================================
+# HÀM BỘ LỌC THÉP: XỬ LÝ LỖI ĐỊNH DẠNG TỪ GOOGLE SHEETS
+# ==========================================
+def to_int(val):
+    try:
+        return int(float(val))
+    except (ValueError, TypeError):
+        return 0
+
+# ==========================================
 # 1. TỰ ĐỘNG NHẬN DIỆN THIẾT BỊ & TỐI ƯU GIAO DIỆN
 # ==========================================
 st.set_page_config(
-    page_title="ERP Quản Lý Kho Than V6.3 - Hoàn Hảo", 
+    page_title="ERP Quản Lý Kho Than V6.5 - Hoàn Hảo", 
     page_icon="🪨", 
     layout="wide", 
     initial_sidebar_state="expanded"
@@ -78,7 +87,6 @@ def init_local_db():
         data = ws.get_all_records()
         if data:
             df = pd.DataFrame(data)
-            # Khắc phục lỗi ID rỗng từ GSheets
             if 'id' in df.columns: df['id'] = pd.to_numeric(df['id'], errors='coerce')
             df.to_sql(ws.title, conn, if_exists='replace', index=False)
     return conn
@@ -126,12 +134,11 @@ def get_connection():
     try: yield ConnectionWrapper(conn)
     finally: conn.close()
 
-# CƠ CHẾ ĐẶC TRỊ ÉP ID THỦ CÔNG - CHỐNG LỖI MAT INVOICE & DUPLICATE
 def get_next_id(table_name, cursor):
     try:
         cursor.execute(f"SELECT MAX(id) FROM {table_name}")
         val = cursor.fetchone()[0]
-        return 1 if pd.isna(val) or val is None else int(val) + 1
+        return 1 if pd.isna(val) or val is None or str(val).strip() == '' else to_int(val) + 1
     except: return 1
 
 def init_database():
@@ -158,7 +165,7 @@ def init_database():
             
         cursor.execute("INSERT OR IGNORE INTO cau_hinh_in (id, thong_tin_ngan_hang) VALUES (1, 'Chưa cài đặt')")
         cursor.execute("SELECT id FROM khach_hang WHERE ma_khach_hang IS NULL")
-        for c in cursor.fetchall(): cursor.execute("UPDATE khach_hang SET ma_khach_hang = ? WHERE id = ?", (f"KH{int(c[0]):04d}", int(c[0])))
+        for c in cursor.fetchall(): cursor.execute("UPDATE khach_hang SET ma_khach_hang = ? WHERE id = ?", (f"KH{to_int(c[0]):04d}", to_int(c[0])))
         conn.commit()
 
 init_database()
@@ -265,11 +272,6 @@ if menu == "Thống Kê (HQ)":
         for _, r in df_kho_status[df_kho_status['ton_kho'] < 500].iterrows():
             st.markdown(f"<div class='delay-alert' style='border-left-color:#f59e0b; background-color:#fffbeb; color:#b45309;'>⚠️ <b>SẮP HẾT HÀNG</b>: Mã <b>{r['ten_than']}</b> chỉ còn <b>{r['ton_kho']:,.0f} kg</b>. Cần nhập bãi!</div>", unsafe_allow_html=True)
 
-    if not df_group.empty:
-        for _, r in df_group[df_group['trang_thai_giao'] != 'Đã hoàn thành'].iterrows():
-            hours_elapsed = (now_dt - pd.to_datetime(r['thoi_gian_tao'])).total_seconds() / 3600
-            if hours_elapsed > 4: st.markdown(f"<div class='delay-alert'>🚨 <b>ĐƠN TRỄ QUÁ 4 GIỜ (Mã {r['ma_don_hien_thi']})</b><br>• Tài xế: {r['ten_nhan_vien'] or 'Chưa phân xe'} | Đối tác: {r['ten_khach']} | Người lên đơn: <b>{r['nguoi_tao']}</b> | Chờ: {hours_elapsed:.1f} giờ</div>", unsafe_allow_html=True)
-
 # ==========================================
 # PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU
 # ==========================================
@@ -279,8 +281,8 @@ elif menu == "Lập Đơn & In Phiếu":
         
     if st.session_state.last_order_id:
         with get_connection() as conn:
-            df_master = pd.read_sql_query(f"SELECT * FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id WHERE dh.id = {int(st.session_state.last_order_id)}", conn.connection)
-            details = pd.read_sql_query(f"SELECT ctdh.*, lt.ten_than FROM chi_tiet_don_hang ctdh JOIN loai_than lt ON ctdh.loai_than_id = lt.id WHERE ctdh.don_hang_id = {int(st.session_state.last_order_id)}", conn.connection)
+            df_master = pd.read_sql_query(f"SELECT * FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id WHERE dh.id = {to_int(st.session_state.last_order_id)}", conn.connection)
+            details = pd.read_sql_query(f"SELECT ctdh.*, lt.ten_than FROM chi_tiet_don_hang ctdh JOIN loai_than lt ON ctdh.loai_than_id = lt.id WHERE ctdh.don_hang_id = {to_int(st.session_state.last_order_id)}", conn.connection)
             
         if df_master.empty:
             st.error("Không tìm thấy dữ liệu hóa đơn. Vui lòng lập lại đơn mới.")
@@ -294,13 +296,13 @@ elif menu == "Lập Đơn & In Phiếu":
                 html_rows += f"<tr><td style='padding: 8px; border-bottom: 1px solid #e2e8f0;'>{r['ten_than']}</td><td style='padding: 8px; border-bottom: 1px solid #e2e8f0; text-align:center;'>{r['so_luong']:,.0f}</td><td style='padding: 8px; border-bottom: 1px solid #e2e8f0; text-align:right;'>{r['don_gia']:,.0f}</td><td style='padding: 8px; border-bottom: 1px solid #e2e8f0; text-align:right; font-weight:bold;'>{thanh_tien:,.0f}</td></tr>"
                 txt_rows += f"- {r['ten_than']}: {r['so_luong']:,.0f} kg x {r['don_gia']:,.0f} đ = {thanh_tien:,.0f} đ\n"
                 
-            full_html_print = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Phiếu Xuất - {master["ma_don_hien_thi"]}</title><style>body {{ font-family: sans-serif; color: #1e293b; margin: 20px; }} .invoice-box {{ {css_class}; margin: 0 auto; padding: 20px; border: 1px solid #ccc; }} table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }} th {{ background: #f1f5f9; text-align: left; padding: 10px; border-bottom: 2px solid #cbd5e1; }} @media print {{ .invoice-box {{ border: none; padding: 0; }} }}</style></head><body onload="window.print()"><div class="invoice-box"><h2 style="text-align:center; margin-bottom: 5px; color:#0f172a;">{print_config["ten_cua_hang"]}</h2><p style="text-align:center; margin-top:0; font-size:13px;">SĐT: <b>{print_config["so_dien_thoai"]}</b></p><hr style="border:0; border-top:1px dashed #cbd5e1; margin: 15px 0;"><h3 style="text-align:center; margin-top:10px; margin-bottom:5px;">PHIẾU XUẤT KHO</h3><p style="text-align:center; color:#64748b; margin-top:0; font-size:12px;">Mã Đơn: <b>{master["ma_don_hien_thi"]}</b> | Ngày: {master["thoi_gian_tao"]}</p><p style="margin-bottom:5px; margin-top:15px;"><b>Khách Hàng:</b> {master["ten_khach"]} ({master["sdt"]})</p><p style="margin-top:0; margin-bottom:15px;"><b>Địa chỉ:</b> {master["dia_chi"]} <br><b>Ghi chú:</b> {master["ghi_chu"]}</p><table><thead><tr><th>Chủng Loại</th><th style="text-align:center;">SL (kg)</th><th style="text-align:right;">Đơn Giá</th><th style="text-align:right;">Thành Tiền</th></tr></thead><tbody>{html_rows}<tr><td colspan="3" style="text-align:right; font-weight:bold; padding-top:15px; border:none;">TỔNG CỘNG:</td><td style="text-align:right; font-weight:bold; padding-top:15px; font-size:16px; border:none;">{total_val:,.0f} đ</td></tr></tbody></table><p style="margin-top:20px; font-size:13px; padding:12px; border:1px dashed #ccc;"><b>THANH TOÁN:</b><br>{print_config["thong_tin_ngan_hang"]}</p><table style="width:100%; margin-top:30px; text-align:center; font-weight:bold; font-size:13px; border:none;"><tr><td style="border:none;">Người Lập Phiếu<br><br><br><b>{master["nguoi_tao"]}</b></td><td style="border:none;">Người Nhận<br><br><br><br></td></tr></table></div></body></html>"""
+            full_html_print = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Phiếu Xuất - {master["ma_don_hien_thi"]}</title><style>body {{ font-family: sans-serif; color: #1e293b; margin: 20px; }} .invoice-box {{ {css_class}; margin: 0 auto; padding: 20px; border: 1px solid #ccc; }} table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }} th {{ background: #f1f5f9; text-align: left; padding: 10px; border-bottom: 2px solid #cbd5e1; }} @media print {{ .invoice-box {{ border: none; padding: 0; }} }}</style></head><body onload="window.print()"><div class="invoice-box"><h2 style="text-align:center; margin-bottom: 5px; color:#0f172a;">{print_config["ten_cua_hang"]}</h2><p style="text-align:center; margin-top:0; font-size:13px;">SĐT: <b>{print_config["so_dien_thoai"]}</b></p><hr style="border:0; border-top:1px dashed #cbd5e1; margin: 15px 0;"><h3 style="text-align:center; margin-top:10px; margin-bottom:5px;">PHIẾU XUẤT KHO</h3><p style="text-align:center; color:#64748b; margin-top:0; font-size:12px;">Mã Đơn: <b>{master["ma_don_hien_thi"]}</b> | Ngày: {master["thoi_gian_tao"]}</p><p style="margin-bottom:5px; margin-top:15px;"><b>Khách Hàng:</b> {master["ten_khach"]}</p><p style="margin-top:0; margin-bottom:15px;"><b>Địa chỉ:</b> {master["dia_chi"]} <br><b>Ghi chú:</b> {master["ghi_chu"]}</p><table><thead><tr><th>Chủng Loại</th><th style="text-align:center;">SL (kg)</th><th style="text-align:right;">Đơn Giá</th><th style="text-align:right;">Thành Tiền</th></tr></thead><tbody>{html_rows}<tr><td colspan="3" style="text-align:right; font-weight:bold; padding-top:15px; border:none;">TỔNG CỘNG:</td><td style="text-align:right; font-weight:bold; padding-top:15px; font-size:16px; border:none;">{total_val:,.0f} đ</td></tr></tbody></table><p style="margin-top:20px; font-size:13px; padding:12px; border:1px dashed #ccc;"><b>THANH TOÁN:</b><br>{print_config["thong_tin_ngan_hang"]}</p></div></body></html>"""
             text_bill = f"HÓA ĐƠN GIAO HÀNG - {print_config['ten_cua_hang']}\nMã: {master['ma_don_hien_thi']} | Ngày: {master['thoi_gian_tao']}\nKhách: {master['ten_khach']}\nĐịa chỉ: {master['dia_chi']}\n-------------------------\n{txt_rows}-------------------------\nTỔNG CỘNG: {total_val:,.0f} VNĐ\nCK/TT: {print_config['thong_tin_ngan_hang']}\nCảm ơn quý khách!"
 
             st.success("Tạo đơn hàng thành công!")
             b64 = base64.b64encode(full_html_print.encode('utf-8')).decode()
-            st.markdown(f'<a href="data:text/html;base64,{b64}" target="_blank" style="display: block; text-align: center; background-color: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; font-weight: bold; text-decoration: none; margin-top: 15px; font-size: 16px;">🖨️ XEM & IN HÓA ĐƠN (Để xuất PDF: Bấm In -> Chọn "Lưu thành PDF")</a>', unsafe_allow_html=True)
-            st.markdown("<br>**Hoặc bôi đen nội dung dưới đây để COPY gửi qua Zalo:**", unsafe_allow_html=True)
+            st.markdown(f'<a href="data:text/html;base64,{b64}" target="_blank" style="display: block; text-align: center; background-color: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; font-weight: bold; text-decoration: none; margin-top: 15px; font-size: 16px;">🖨️ XEM & IN HÓA ĐƠN</a>', unsafe_allow_html=True)
+            st.markdown("<br>**Hoặc COPY gửi qua Zalo:**", unsafe_allow_html=True)
             st.code(text_bill, language="text")
             if st.button("🔄 LẬP ĐƠN MỚI TIẾP THEO"): st.session_state.last_order_id = None; st.rerun()
     else:
@@ -314,7 +316,7 @@ elif menu == "Lập Đơn & In Phiếu":
             khach_id = st.selectbox("👤 Chọn Khách Hàng:", options=list(khach_dict.keys()), format_func=lambda x: khach_dict.get(x, "Lỗi"))
             st.markdown("---")
             
-            with get_connection() as conn: df_pb = pd.read_sql_query(f"SELECT loai_than_id FROM gia_rieng WHERE khach_hang_id = {int(khach_id)}", conn.connection)
+            with get_connection() as conn: df_pb = pd.read_sql_query(f"SELECT loai_than_id FROM gia_rieng WHERE khach_hang_id = {to_int(khach_id)}", conn.connection)
             than_options = df_than[df_than['id'].isin(df_pb['loai_than_id'].tolist())] if not df_pb.empty else df_than
             if than_options.empty: than_options = df_than
             
@@ -323,7 +325,7 @@ elif menu == "Lập Đơn & In Phiếu":
             
             with get_connection() as conn: 
                 cur = conn.cursor()
-                cur.execute("SELECT gia_uu_dai FROM gia_rieng WHERE khach_hang_id=? AND loai_than_id=?", (int(khach_id), int(t_id)))
+                cur.execute("SELECT gia_uu_dai FROM gia_rieng WHERE khach_hang_id=? AND loai_than_id=?", (to_int(khach_id), to_int(t_id)))
                 gr_res = cur.fetchone()
             
             default_price = df_than[df_than['id']==t_id]['gia_mac_dinh'].values
@@ -337,7 +339,7 @@ elif menu == "Lập Đơn & In Phiếu":
             
             if st.button("➕ Thêm vào phiếu"):
                 if any(i['loai_than_id'] == t_id for i in st.session_state.cart): st.error("Mã này đã có trong giỏ!")
-                else: st.session_state.cart.append({'loai_than_id': int(t_id), 'ten_than': than_dict.get(t_id), 'so_luong': sl, 'don_gia': dg, 'thanh_tien': sl * dg}); st.rerun()
+                else: st.session_state.cart.append({'loai_than_id': to_int(t_id), 'ten_than': than_dict.get(t_id), 'so_luong': sl, 'don_gia': dg, 'thanh_tien': sl * dg}); st.rerun()
 
             if st.session_state.cart:
                 df_c = pd.DataFrame(st.session_state.cart)
@@ -359,16 +361,16 @@ elif menu == "Lập Đơn & In Phiếu":
                         with get_connection() as conn:
                             cur = conn.cursor()
                             new_id = get_next_id('don_hang', cur)
-                            cur.execute('INSERT INTO don_hang (id, ma_don_hien_thi, khach_hang_id, ngay_ban, thoi_gian_tao, trang_thai_giao, ghi_chu, giao_gap, tong_tien, tien_con_no, nguoi_tao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', (new_id, ma_don_final, int(khach_id), today_str, ts, 'Chờ giao hàng', g_chu, is_gap, total_val, total_val, st.session_state.current_user))
+                            cur.execute('INSERT INTO don_hang (id, ma_don_hien_thi, khach_hang_id, ngay_ban, thoi_gian_tao, trang_thai_giao, ghi_chu, giao_gap, tong_tien, tien_con_no, nguoi_tao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', (new_id, ma_don_final, to_int(khach_id), today_str, ts, 'Chờ giao hàng', g_chu, is_gap, total_val, total_val, st.session_state.current_user))
                             for i in st.session_state.cart:
                                 ct_id = get_next_id('chi_tiet_don_hang', cur)
-                                cur.execute('INSERT INTO chi_tiet_don_hang (id, don_hang_id, loai_than_id, so_luong, don_gia) VALUES (?, ?, ?, ?, ?)', (ct_id, new_id, int(i['loai_than_id']), i['so_luong'], i['don_gia']))
-                                cur.execute("UPDATE loai_than SET ton_kho = ton_kho - ? WHERE id = ?", (i['so_luong'], int(i['loai_than_id'])))
+                                cur.execute('INSERT INTO chi_tiet_don_hang (id, don_hang_id, loai_than_id, so_luong, don_gia) VALUES (?, ?, ?, ?, ?)', (ct_id, new_id, to_int(i['loai_than_id']), i['so_luong'], i['don_gia']))
+                                cur.execute("UPDATE loai_than SET ton_kho = ton_kho - ? WHERE id = ?", (i['so_luong'], to_int(i['loai_than_id'])))
                             conn.commit()
                         st.session_state.cart = []; st.session_state.last_order_id = new_id; st.rerun()
 
 # ==========================================
-# PHÂN HỆ 3: GIAO HÀNG & SỔ NỢ (ĐÃ VÁ LỖI DUPLICATE FORM)
+# PHÂN HỆ 3: GIAO HÀNG & SỔ NỢ
 # ==========================================
 elif menu == "Giao Hàng & Vận Tải":
     st.markdown("### 🚚 Bàn Giao Lộ Trình & Nghiệm Thu")
@@ -381,25 +383,23 @@ elif menu == "Giao Hàng & Vận Tải":
             if df_cho.empty: st.success("Không có đơn chờ đi giao.")
             else:
                 for idx, r in df_cho.iterrows():
-                    with st.form(f"giao_xe_form_{idx}_{r['id']}"):
+                    with st.form(f"giao_xe_form_{idx}_{to_int(r['id'])}"):
                         st.write(f"📦 Đơn **{r['ma_don_hien_thi']}** - Khách: **{r['ten_khach']}**")
                         if r['link_google_maps']: st.markdown(f"[📍 Mở Bản Đồ Đường Đi]({r['link_google_maps']})")
-                        
                         tx_dict = dict(zip(df_staff['id'], df_staff['ten_nhan_vien']))
                         tx_id = st.selectbox("Tài xế:", options=list(tx_dict.keys()), format_func=lambda x: tx_dict.get(x))
                         
                         if st.form_submit_button("Lệnh Cho Xe Chạy"):
                             with get_connection() as c_update: 
-                                c_update.cursor().execute("UPDATE don_hang SET trang_thai_giao='Đang giao', nhan_vien_id=? WHERE id=?", (int(tx_id), int(r['id'])))
+                                c_update.cursor().execute("UPDATE don_hang SET trang_thai_giao='Đang giao', nhan_vien_id=? WHERE id=?", (to_int(tx_id), to_int(r['id'])))
                                 c_update.commit()
-                            st.success("Đã phân xe!")
-                            st.rerun()
+                            st.success("Đã phân xe!"); st.rerun()
         with tab2:
             with get_connection() as conn: df_dang = pd.read_sql_query("SELECT dh.id, dh.ma_don_hien_thi, dh.tong_tien, kh.ten_khach, nv.ten_nhan_vien FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id WHERE dh.trang_thai_giao = 'Đang giao'", conn.connection)
             if df_dang.empty: st.info("Chưa có xe nào đang chạy.")
             else:
                 for idx, r in df_dang.iterrows():
-                    with st.form(f"form_done_gh_{idx}_{r['id']}"):
+                    with st.form(f"form_done_gh_{idx}_{to_int(r['id'])}"):
                         st.write(f"🚚 Đơn **{r['ma_don_hien_thi']}** - Khách: {r['ten_khach']} | Tổng: **{r['tong_tien']:,.0f} đ**")
                         tien_tra_ngay = st.number_input("Khách trả ngay (đ):", min_value=0.0, max_value=float(r['tong_tien']), value=float(r['tong_tien']), step=10000.0)
                         pt_tt = st.selectbox("Hình thức thanh toán:", ["Chuyển khoản", "Tiền mặt"])
@@ -409,13 +409,12 @@ elif menu == "Giao Hàng & Vận Tải":
                             ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                             with get_connection() as c_update:
                                 cur = c_update.cursor()
-                                cur.execute("UPDATE don_hang SET trang_thai_giao='Đã hoàn thành', da_thanh_toan=?, hinh_thuc_thanh_toan=?, tien_da_tra=?, tien_con_no=? WHERE id=?", (is_paid, ht_luu, tien_tra_ngay, tien_con_no_lai, int(r['id'])))
+                                cur.execute("UPDATE don_hang SET trang_thai_giao='Đã hoàn thành', da_thanh_toan=?, hinh_thuc_thanh_toan=?, tien_da_tra=?, tien_con_no=? WHERE id=?", (is_paid, ht_luu, tien_tra_ngay, tien_con_no_lai, to_int(r['id'])))
                                 if tien_tra_ngay > 0: 
                                     lsid = get_next_id('lich_su_thanh_toan', cur)
-                                    cur.execute("INSERT INTO lich_su_thanh_toan (id, don_hang_id, so_tien_tra, hinh_thuc, ngay_tra, ghi_chu, nguoi_tao) VALUES (?,?,?,?,?,?,?)", (lsid, int(r['id']), tien_tra_ngay, pt_tt, ts, "Thu tại bãi", st.session_state.current_user))
+                                    cur.execute("INSERT INTO lich_su_thanh_toan (id, don_hang_id, so_tien_tra, hinh_thuc, ngay_tra, ghi_chu, nguoi_tao) VALUES (?,?,?,?,?,?,?)", (lsid, to_int(r['id']), tien_tra_ngay, pt_tt, ts, "Thu tại bãi", st.session_state.current_user))
                                 c_update.commit()
-                            st.success("Hoàn thành!")
-                            st.rerun()
+                            st.success("Hoàn thành!"); st.rerun()
 
 elif menu == "Sổ Quản Lý Nợ":
     st.markdown("### 💰 Quản Lý Dòng Tiền & Công Nợ")
@@ -434,9 +433,9 @@ elif menu == "Sổ Quản Lý Nợ":
                 ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 with get_connection() as c_update:
                     cur = c_update.cursor()
-                    cur.execute("UPDATE don_hang SET tien_con_no=tien_con_no-?, tien_da_tra=tien_da_tra+?, da_thanh_toan=CASE WHEN tien_con_no-? <= 0 THEN 1 ELSE 0 END WHERE id=?", (tien_thu, tien_thu, tien_thu, int(id_don_no)))
+                    cur.execute("UPDATE don_hang SET tien_con_no=tien_con_no-?, tien_da_tra=tien_da_tra+?, da_thanh_toan=CASE WHEN tien_con_no-? <= 0 THEN 1 ELSE 0 END WHERE id=?", (tien_thu, tien_thu, tien_thu, to_int(id_don_no)))
                     lsid = get_next_id('lich_su_thanh_toan', cur)
-                    cur.execute("INSERT INTO lich_su_thanh_toan (id, don_hang_id, so_tien_tra, hinh_thuc, ngay_tra, ghi_chu, nguoi_tao) VALUES (?,?,?,?,?,?,?)", (lsid, int(id_don_no), tien_thu, ht_thu, ts, "Thu nợ", st.session_state.current_user))
+                    cur.execute("INSERT INTO lich_su_thanh_toan (id, don_hang_id, so_tien_tra, hinh_thuc, ngay_tra, ghi_chu, nguoi_tao) VALUES (?,?,?,?,?,?,?)", (lsid, to_int(id_don_no), tien_thu, ht_thu, ts, "Thu nợ", st.session_state.current_user))
                     c_update.commit()
                 st.success("Đã gạch nợ!"); st.rerun()
 
@@ -459,6 +458,7 @@ elif menu == "Cài Đặt Hệ Thống":
     if tab_sys == "1. Danh Mục Loại Than":
         with get_connection() as conn: 
             df_t = pd.read_sql_query("SELECT id, ten_than FROM loai_than", conn.connection)
+            df_t_show = pd.read_sql_query("SELECT ten_than as 'Tên Loại Than', gia_nhap_mac_dinh as 'Giá Nhập (đ)', gia_mac_dinh as 'Giá Bán (đ)', ton_kho as 'Tồn Kho (kg)' FROM loai_than", conn.connection)
             df_nhap = pd.read_sql_query('''SELECT nh.ngay_nhap as "Ngày", lt.ten_than as "Loại Than", nh.xuong_nhap as "Xưởng", nh.so_luong as "SL (kg)", nh.don_gia_nhap as "Giá Nhập", nh.nguoi_tao as "Người Nhập" FROM nhap_hang nh JOIN loai_than lt ON nh.loai_than_id = lt.id ORDER BY nh.id DESC''', conn.connection)
             
         t_sub1, t_sub2, t_sub3 = st.tabs(["➕ Thêm Loại Than", "🔧 Sửa Tên/Giá", "🚢 Nhập Hàng & Lịch Sử"])
@@ -476,13 +476,13 @@ elif menu == "Cài Đặt Hệ Thống":
             if not df_t.empty:
                 than_dict = dict(zip(df_t['id'], df_t['ten_than']))
                 id_e = st.selectbox("Chọn mã than:", options=list(than_dict.keys()), format_func=lambda x: than_dict.get(x))
-                with get_connection() as conn: info = pd.read_sql_query(f"SELECT * FROM loai_than WHERE id={int(id_e)}", conn.connection).iloc[0]
+                with get_connection() as conn: info = pd.read_sql_query(f"SELECT * FROM loai_than WHERE id={to_int(id_e)}", conn.connection).iloc[0]
                 with st.form("f_c_edit"):
                     en = st.text_input("Tên mới:", value=info['ten_than']); ep = st.number_input("Giá bán mới:", value=float(info['gia_mac_dinh']))
                     if st.form_submit_button("Cập Nhật"):
                         try:
                             with get_connection() as conn: 
-                                conn.cursor().execute("UPDATE loai_than SET ten_than=?, gia_mac_dinh=? WHERE id=?", (en.strip(), ep, int(id_e))); conn.commit()
+                                conn.cursor().execute("UPDATE loai_than SET ten_than=?, gia_mac_dinh=? WHERE id=?", (en.strip(), ep, to_int(id_e))); conn.commit()
                             st.success("Cập nhật thành công!"); st.rerun()
                         except: st.error("Tên loại than này đã tồn tại!")
         with t_sub3:
@@ -496,10 +496,17 @@ elif menu == "Cài Đặt Hệ Thống":
                     if st.form_submit_button("Xác nhận nhập kho"):
                         with get_connection() as conn: 
                             nid = get_next_id('nhap_hang', conn.cursor())
-                            conn.cursor().execute('''INSERT INTO nhap_hang(id, loai_than_id, ngay_nhap, xuong_nhap, so_luong, don_gia_nhap, nguoi_tao) VALUES(?,?,?,?,?,?,?)''', (nid, int(id_n), today_str, xuong, w_in, p_in, st.session_state.current_user))
-                            conn.cursor().execute("UPDATE loai_than SET ton_kho=ton_kho+? WHERE id=?", (w_in, int(id_n))); conn.commit()
+                            conn.cursor().execute('''INSERT INTO nhap_hang(id, loai_than_id, ngay_nhap, xuong_nhap, so_luong, don_gia_nhap, nguoi_tao) VALUES(?,?,?,?,?,?,?)''', (nid, to_int(id_n), today_str, xuong, w_in, p_in, st.session_state.current_user))
+                            conn.cursor().execute("UPDATE loai_than SET ton_kho=ton_kho+? WHERE id=?", (w_in, to_int(id_n))); conn.commit()
                         st.success("Nhập kho thành công!"); st.rerun()
+            st.markdown("---")
+            st.markdown("#### 📜 NHẬT KÝ NHẬP KHO GẦN ĐÂY")
             st.dataframe(df_nhap, use_container_width=True, hide_index=True)
+            
+        st.markdown("---")
+        st.markdown("#### 📋 DANH MỤC THAN VÀ TỒN KHO HIỆN TẠI")
+        if not df_t_show.empty: 
+            st.dataframe(df_t_show.style.format({'Giá Nhập (đ)': '{:,.0f}', 'Giá Bán (đ)': '{:,.0f}', 'Tồn Kho (kg)': '{:,.0f}'}), use_container_width=True, hide_index=True)
 
     elif tab_sys == "2. Quản Lý Khách Hàng":
         with get_connection() as conn: df_k = pd.read_sql_query("SELECT id, ma_khach_hang, ten_khach, sdt, dia_chi, khu_vuc, link_google_maps FROM khach_hang", conn.connection)
@@ -526,9 +533,14 @@ elif menu == "Cài Đặt Hệ Thống":
                     if st.form_submit_button("Cập Nhật"):
                         try:
                             with get_connection() as conn: 
-                                conn.cursor().execute("UPDATE khach_hang SET ten_khach=?, sdt=?, dia_chi=?, khu_vuc=?, link_google_maps=? WHERE id=?",(ekn.strip(),ekp,ekd,ekk.strip(),emap,int(id_ke))); conn.commit()
+                                conn.cursor().execute("UPDATE khach_hang SET ten_khach=?, sdt=?, dia_chi=?, khu_vuc=?, link_google_maps=? WHERE id=?",(ekn.strip(),ekp,ekd,ekk.strip(),emap,to_int(id_ke))); conn.commit()
                             st.success("Cập nhật thành công!"); st.rerun()
                         except sqlite3.IntegrityError: st.error("Tên khách hàng này đã tồn tại!")
+                        
+        st.markdown("---")
+        st.markdown("#### 📋 DANH SÁCH HỒ SƠ KHÁCH HÀNG")
+        if not df_k.empty: 
+            st.dataframe(df_k.drop(columns=['id', 'link_google_maps']).rename(columns={'ma_khach_hang':'Mã KH', 'ten_khach':'Tên Khách Hàng', 'sdt':'SĐT', 'dia_chi':'Địa Chỉ', 'khu_vuc':'Khu Vực'}), use_container_width=True, hide_index=True)
 
     elif tab_sys == "3. Quản Lý Tài Xế":
         with get_connection() as conn: df_nv = pd.read_sql_query("SELECT id, ten_nhan_vien, sdt FROM nhan_vien", conn.connection)
@@ -549,8 +561,13 @@ elif menu == "Cài Đặt Hệ Thống":
                 id_ve = st.selectbox("Tài xế:", options=list(nv_dict.keys()), format_func=lambda x: nv_dict.get(x))
                 if st.button("❌ Xóa tài xế này"):
                     with get_connection() as conn: 
-                        conn.cursor().execute("DELETE FROM nhan_vien WHERE id=?",(int(id_ve),)); conn.commit()
+                        conn.cursor().execute("DELETE FROM nhan_vien WHERE id=?",(to_int(id_ve),)); conn.commit()
                     st.rerun()
+                    
+        st.markdown("---")
+        st.markdown("#### 📋 ĐỘI NGŨ TÀI XẾ VẬN TẢI")
+        if not df_nv.empty: 
+            st.dataframe(df_nv.drop(columns=['id']).rename(columns={'ten_nhan_vien':'Họ Tên Tài Xế', 'sdt':'Số Điện Thoại'}), use_container_width=True, hide_index=True)
 
     elif tab_sys == "4. Phân Quyền Giá Riêng":
         with get_connection() as conn:
@@ -569,7 +586,7 @@ elif menu == "Cài Đặt Hệ Thống":
                     
                     with get_connection() as cnn: 
                         cur = cnn.cursor()
-                        cur.execute("SELECT gia_uu_dai FROM gia_rieng WHERE khach_hang_id=? AND loai_than_id=?", (int(id_k), int(id_t)))
+                        cur.execute("SELECT gia_uu_dai FROM gia_rieng WHERE khach_hang_id=? AND loai_than_id=?", (to_int(id_k), to_int(id_t)))
                         old_p_res = cur.fetchone()
                     old_p = old_p_res[0] if old_p_res else 0
                     
@@ -582,10 +599,17 @@ elif menu == "Cài Đặt Hệ Thống":
                             cur = conn.cursor()
                             if old_p != g_new: 
                                 lsgid = get_next_id('lich_su_gia', cur)
-                                cur.execute("INSERT INTO lich_su_gia (id, khach_hang_id, loai_than_id, gia_cu, gia_moi, ngay_thay_doi) VALUES (?,?,?,?,?,?)", (lsgid, int(id_k), int(id_t), old_p, g_new, ts_change))
-                            cur.execute("INSERT INTO gia_rieng (khach_hang_id, loai_than_id, gia_uu_dai) VALUES (?,?,?) ON CONFLICT (khach_hang_id, loai_than_id) DO UPDATE SET gia_uu_dai = EXCLUDED.gia_uu_dai", (int(id_k), int(id_t), g_new))
+                                cur.execute("INSERT INTO lich_su_gia (id, khach_hang_id, loai_than_id, gia_cu, gia_moi, ngay_thay_doi) VALUES (?,?,?,?,?,?)", (lsgid, to_int(id_k), to_int(id_t), old_p, g_new, ts_change))
+                            cur.execute("INSERT INTO gia_rieng (khach_hang_id, loai_than_id, gia_uu_dai) VALUES (?,?,?) ON CONFLICT (khach_hang_id, loai_than_id) DO UPDATE SET gia_uu_dai = EXCLUDED.gia_uu_dai", (to_int(id_k), to_int(id_t), g_new))
                             conn.commit()
                         st.success("Đã lưu!"); st.rerun()
+                        
+            st.markdown("---")
+            st.markdown("#### 📋 DANH SÁCH GIÁ ƯU ĐÃI ĐANG ÁP DỤNG")
+            with get_connection() as conn:
+                df_pq = pd.read_sql_query('SELECT kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than", gr.gia_uu_dai as "Giá Riêng (đ/kg)" FROM gia_rieng gr JOIN khach_hang kh ON gr.khach_hang_id = kh.id JOIN loai_than lt ON gr.loai_than_id = lt.id', conn.connection)
+            if not df_pq.empty:
+                st.dataframe(df_pq.style.format({'Giá Riêng (đ/kg)': '{:,.0f}'}), use_container_width=True, hide_index=True)
 
     elif tab_sys == "5. Cấu Hình In Bill":
         with get_connection() as conn: config = pd.read_sql_query("SELECT * FROM cau_hinh_in WHERE id = 1", conn.connection).iloc[0]
@@ -609,15 +633,15 @@ elif menu == "Cài Đặt Hệ Thống":
                     c1, c2, c3 = st.columns([3, 1, 1])
                     c1.write(f"Tài khoản: **{r['username']}**")
                     if c2.button("✅ Duyệt", key=f"app_{r['id']}"):
-                        with get_connection() as conn: conn.cursor().execute("UPDATE users SET status='Đã duyệt' WHERE id=?", (int(r['id']),)); conn.commit()
+                        with get_connection() as conn: conn.cursor().execute("UPDATE users SET status='Đã duyệt' WHERE id=?", (to_int(r['id']),)); conn.commit()
                         st.rerun()
                     if c3.button("❌ Xóa", key=f"rej_{r['id']}"):
-                        with get_connection() as conn: conn.cursor().execute("DELETE FROM users WHERE id=?", (int(r['id']),)); conn.commit()
+                        with get_connection() as conn: conn.cursor().execute("DELETE FROM users WHERE id=?", (to_int(r['id']),)); conn.commit()
                         st.rerun()
             with t_u2:
                 for _, r in df_users[df_users['status'] == 'Đã duyệt'].iterrows():
                     c1, c2 = st.columns([4, 1])
                     c1.write(f"Tài khoản: **{r['username']}**")
                     if c2.button("🗑️ Xóa", key=f"del_u_{r['id']}"):
-                        with get_connection() as conn: conn.cursor().execute("DELETE FROM users WHERE id=?", (int(r['id']),)); conn.commit()
+                        with get_connection() as conn: conn.cursor().execute("DELETE FROM users WHERE id=?", (to_int(r['id']),)); conn.commit()
                         st.rerun()
