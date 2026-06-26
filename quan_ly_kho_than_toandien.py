@@ -223,7 +223,7 @@ def init_database():
 
 init_database()
 
-# ==========================================
+# =========================================
 # 3. HỆ THỐNG ĐĂNG NHẬP
 # ==========================================
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
@@ -753,6 +753,7 @@ elif menu == "Cài Đặt Hệ Thống":
     if st.session_state.user_role == 'admin': tabs_list.extend(["6. Quản Lý Tài Khoản (Admin)", "7. System Log (Theo dõi lỗi)"])
     tab_sys = st.selectbox("Chọn danh mục cần cấu hình:", tabs_list)
     
+    # ------------------ 1. LOẠI THAN ------------------
     if tab_sys == "1. Danh Mục Loại Than":
         with get_connection() as conn: 
             df_t = pd.read_sql_query("SELECT rowid as db_rowid, id, ten_than FROM loai_than", conn.connection)
@@ -760,14 +761,19 @@ elif menu == "Cài Đặt Hệ Thống":
             df_nhap = pd.read_sql_query('''SELECT nh.ngay_nhap as "Ngày", lt.ten_than as "Loại Than", nh.xuong_nhap as "Xưởng", nh.so_luong as "SL (kg)", nh.don_gia_nhap as "Giá Nhập" FROM nhap_hang nh JOIN loai_than lt ON nh.loai_than_id = lt.id ORDER BY nh.id DESC''', conn.connection)
             
         t_sub1, t_sub2, t_sub3 = st.tabs(["➕ Thêm Loại Than", "🔧 Sửa Tên/Giá", "🚢 Nhập Hàng & Lịch Sử"])
+        
         with t_sub1:
             with st.form("f_c_add"):
-                n = st.text_input("Tên than mới:"); pn = st.number_input("Giá nhập gốc:", value=1500); p = st.number_input("Giá bán:", value=3000)
+                n = st.text_input("Tên than mới:")
+                # Dùng format="%f" và step=500.0 để hỗ trợ nhập số lẻ, không bị làm tròn
+                pn = st.number_input("Giá nhập gốc (đ):", value=1500.0, step=500.0, format="%f")
+                p = st.number_input("Giá bán (đ):", value=3000.0, step=500.0, format="%f")
                 if st.form_submit_button("Thêm"):
                     with get_connection() as conn: 
                         tid = get_next_id('loai_than', conn.cursor())
                         conn.execute("INSERT INTO loai_than(id, ten_than, gia_nhap_mac_dinh, gia_mac_dinh, ton_kho, nguoi_tao) VALUES(?,?,?,?,?,?)", (tid, n.strip(), pn, p, 0.0, st.session_state.current_user)); conn.commit()
                     st.success("Thêm thành công!"); st.rerun()
+
         with t_sub2:
             if not df_t.empty:
                 than_dict = dict(zip(df_t['db_rowid'], df_t['ten_than'].astype(str)))
@@ -777,19 +783,23 @@ elif menu == "Cài Đặt Hệ Thống":
                     if not query_df.empty:
                         info = query_df.iloc[0]
                         with st.form("f_c_edit"):
-                            en = st.text_input("Tên mới:", value=info['ten_than']); ep = st.number_input("Giá bán mới:", value=float(info['gia_mac_dinh']))
+                            en = st.text_input("Tên mới:", value=info['ten_than'])
+                            ep = st.number_input("Giá bán mới (đ):", value=float(info['gia_mac_dinh']), step=500.0, format="%f")
                             if st.form_submit_button("Cập Nhật"):
                                 with get_connection() as conn: 
                                     conn.execute("UPDATE loai_than SET ten_than=?, gia_mac_dinh=? WHERE rowid=?", (en.strip(), ep, to_int(id_e))); conn.commit()
                                 st.success("Cập nhật thành công!"); st.rerun()
+                    else: st.warning("Dữ liệu loại than này không còn tồn tại.")
+
         with t_sub3:
             st.subheader("📦 Nhập hàng vào kho")
             with st.form("f_c_in"):
                 if not df_t.empty:
                     id_n = st.selectbox("Chọn loại than:", options=list(than_dict.keys()), format_func=lambda x: than_dict.get(x))
                     xuong = st.text_input("Nguồn nhập / Xưởng:")
-                    w_in = st.number_input("SL Nhập (kg):", min_value=1.0, value=1000.0)
-                    p_in = st.number_input("Giá Nhập (đ):", value=1500)
+                    # Khối lượng và giá nhập cho phép số lẻ
+                    w_in = st.number_input("SL Nhập (kg):", min_value=0.0, value=1000.0, step=100.0, format="%f")
+                    p_in = st.number_input("Giá Nhập (đ):", value=1500.0, step=500.0, format="%f")
                     if st.form_submit_button("Xác nhận nhập kho"):
                         with get_connection() as conn: 
                             nid = get_next_id('nhap_hang', conn.cursor())
@@ -799,6 +809,23 @@ elif menu == "Cài Đặt Hệ Thống":
                         st.success("Nhập kho thành công!"); st.rerun()
             st.markdown("#### 📜 NHẬT KÝ NHẬP KHO GẦN ĐÂY")
             st.dataframe(df_nhap, hide_index=True)
+            
+        st.markdown("---")
+        st.markdown("#### 📋 DANH MỤC THAN VÀ NÚT XÓA NHANH")
+        if not df_t_show.empty: 
+            # Định dạng lại cột hiển thị: {:,.0f} sẽ loại bỏ phần thập phân (.00)
+            df_display = df_t_show.copy()
+            st.dataframe(df_display.style.format({
+                'Giá Nhập (đ)': '{:,.0f}', 
+                'Giá Bán (đ)': '{:,.0f}', 
+                'Tồn Kho (kg)': '{:,.0f}'
+            }), hide_index=True)
+            
+            # Form xóa nhanh dùng ID rowid
+            c_del = st.selectbox("Chọn dòng muốn xóa:", options=df_t_show['db_rowid'], format_func=lambda x: df_t_show[df_t_show['db_rowid']==x]['Tên Loại Than'].values[0])
+            if st.button("❌ XÓA DÒNG ĐÃ CHỌN", type="primary"):
+                cb_xoa_than(c_del)
+                st.rerun()
             
         st.markdown("---")
         st.markdown("#### 📋 DANH MỤC THAN VÀ NÚT XÓA NHANH")
