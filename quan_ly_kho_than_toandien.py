@@ -279,7 +279,7 @@ with st.sidebar:
 # ==========================================
 # PHÂN HỆ 1: THỐNG KÊ (HQ DASHBOARD TÍCH HỢP)
 # ==========================================
-if menu == "Thống Kê ":
+if menu == "Thống Kê (HQ)":
     st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📊 PHÂN HỆ GIÁM SÁT KINH DOANH TỔNG THỂ</h1></div>", unsafe_allow_html=True)
     time_filter = st.radio("⏳ Mốc thời gian:", ["Hôm nay", "Tuần này", "Tháng này", "Tất cả thời gian"], horizontal=True)
 
