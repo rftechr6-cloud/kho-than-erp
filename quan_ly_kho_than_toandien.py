@@ -369,30 +369,38 @@ if menu == "Thống Kê (HQ)":
                                         WHERE dh.trang_thai_giao != 'Đã hoàn thành' ''', conn.connection)
     
     if not df_delay.empty:
+        # Ép kiểu toàn bộ cột thời gian về Datetime chuẩn của Pandas
         df_delay['thoi_gian_tao_dt'] = pd.to_datetime(df_delay['thoi_gian_tao'])
         
+        # Lấy thời gian hiện tại dưới dạng Timestamp chuẩn của Pandas
+        current_time = pd.Timestamp.now()
+        
         for _, r in df_delay.iterrows():
-            # Thời gian chờ thực tế
-            wait_time = (now_dt - r['thoi_gian_tao_dt'].replace(tzinfo=None)).total_seconds() / 3600
-            
-            # Logic: > 2 giờ thì đỏ, <= 2 giờ thì xanh
-            is_late = wait_time > 2
-            color = "#ef4444" if is_late else "#22c55e" # Đỏ nếu trễ, Xanh nếu ổn
-            icon = "🚨" if is_late else "✅"
-            status_text = f"TRỄ {wait_time:.1f} GIỜ" if is_late else f"Đang chờ {wait_time:.1f} giờ"
-            
-            tx_name = r['ten_nhan_vien'] if r['ten_nhan_vien'] else "Chưa phân xe"
-            
-            st.markdown(f"""
-                <div style='border-left: 6px solid {color}; background-color: #f9fafb; padding: 12px; border-radius: 8px; margin-bottom: 8px;'>
-                    <b style='color: {color}'>{icon} Đơn {r['ma_don_hien_thi']} - {status_text}</b><br>
-                    <small>• Đặt lúc: {r['thoi_gian_tao_dt'].strftime('%H:%M %d/%m')}</small> | 
-                    <small>• Tài xế: {tx_name}</small> | 
-                    <small>• Đối tác: {r['ten_khach']}</small>
-                </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.info("Hiện không có đơn hàng nào đang chờ xử lý.")
+            try:
+                # Ép kiểu dữ liệu trong hàng về Timestamp
+                row_time = pd.Timestamp(r['thoi_gian_tao_dt'])
+                
+                # Trừ trực tiếp giữa 2 Timestamp của Pandas
+                wait_time = (current_time - row_time).total_seconds() / 3600
+                
+                is_late = wait_time > 2
+                color = "#ef4444" if is_late else "#22c55e"
+                icon = "🚨" if is_late else "✅"
+                status_text = f"TRỄ {wait_time:.1f} GIỜ" if is_late else f"Đang chờ {wait_time:.1f} giờ"
+                
+                tx_name = r['ten_nhan_vien'] if r['ten_nhan_vien'] else "Chưa phân xe"
+                
+                st.markdown(f"""
+                    <div style='border-left: 6px solid {color}; background-color: #f9fafb; padding: 12px; border-radius: 8px; margin-bottom: 8px;'>
+                        <b style='color: {color}'>{icon} Đơn {r['ma_don_hien_thi']} - {status_text}</b><br>
+                        <small>• Đặt lúc: {row_time.strftime('%H:%M %d/%m')}</small> | 
+                        <small>• Tài xế: {tx_name}</small> | 
+                        <small>• Đối tác: {r['ten_khach']}</small>
+                    </div>
+                """, unsafe_allow_html=True)
+            except Exception as e:
+                write_log("Tính thời gian trễ", "ERROR", f"Đơn {r['ma_don_hien_thi']}: {str(e)}")
+                continue
     st.markdown("---")
     st.markdown("### 🗺️ Bản Đồ Phân Bổ Mở Rộng Thị Trường")
     if not df_flat.empty:
