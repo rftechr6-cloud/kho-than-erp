@@ -30,12 +30,13 @@ MAP_COORDS = {
 }
 
 # ==========================================
-# CÁC HÀM XỬ LÝ ĐỊNH DẠNG & BẢO MẬT (ĐÃ NÂNG CẤP CHỐNG LỖI)
+# CÁC HÀM XỬ LÝ ĐỊNH DẠNG & BẢO MẬT (CHỐNG LỖI UNICODE/VALUE)
 # ==========================================
 def to_float(val):
-    """Hàm bóc tách con số siêu mạnh, loại bỏ mọi dấu phẩy/chữ từ Google Sheets"""
+    """Hàm bóc tách con số siêu mạnh, loại bỏ mọi dấu phẩy/chữ/bytes lỗi"""
     try:
         if pd.isna(val) or str(val).strip() == "": return 0.0
+        if isinstance(val, bytes): val = val.decode('utf-8', 'ignore')
         clean_val = str(val).replace(",", "").replace("đ", "").replace("VNĐ", "").replace(" ", "")
         return float(clean_val)
     except: return 0.0
@@ -45,7 +46,7 @@ def to_int(val):
     except: return 0
 
 def fmt_vn(val):
-    """Hàm định dạng số kiểu Việt Nam dùng dấu chấm"""
+    """Hàm định dạng số kiểu Việt Nam dùng dấu chấm (Ví dụ: 15000 -> 15.000)"""
     try: return f"{int(to_float(val)):,}".replace(",", ".")
     except: return "0"
 
@@ -63,7 +64,7 @@ def write_log(action, status, detail=""):
     if len(st.session_state.sys_log) > 50: st.session_state.sys_log.pop()
 
 # ==========================================
-# CÁC CALLBACKS XỬ LÝ DỮ LIỆU CỐT LÕI
+# CÁC CALLBACKS XỬ LÝ DỮ LIỆU BẰNG ROWID ẨN
 # ==========================================
 def cb_xoa_than(db_rowid):
     with get_connection() as c: c.execute("DELETE FROM loai_than WHERE rowid=?", (db_rowid,)); c.commit()
@@ -82,22 +83,19 @@ def cb_xoa_user(db_rowid):
     write_log("Xóa tài khoản", "SUCCESS", f"Đã xóa vĩnh viễn user có RowID: {db_rowid}")
 
 def cb_huy_don(db_rowid):
-    """QUY TRÌNH HỦY ĐƠN CHUẨN: Hoàn lại tồn kho -> Xóa dữ liệu tiền -> Xóa đơn"""
     try:
         with get_connection() as c:
             res = c.execute("SELECT id FROM don_hang WHERE rowid=?", (db_rowid,)).fetchone()
             if res:
                 don_id = to_int(res[0])
                 chi_tiet = pd.read_sql_query(f"SELECT loai_than_id, so_luong FROM chi_tiet_don_hang WHERE don_hang_id={don_id}", c.connection)
-                # Hoàn trả lại tồn kho kho bãi
                 for _, row in chi_tiet.iterrows():
                     c.execute("UPDATE loai_than SET ton_kho = ton_kho + ? WHERE id = ?", (to_float(row['so_luong']), to_int(row['loai_than_id'])))
-                # Xóa dấu vết thanh toán & chi tiết hàng
                 c.execute("DELETE FROM chi_tiet_don_hang WHERE don_hang_id=?", (don_id,))
                 c.execute("DELETE FROM lich_su_thanh_toan WHERE don_hang_id=?", (don_id,))
             c.execute("DELETE FROM don_hang WHERE rowid=?", (db_rowid,))
             c.commit()
-        write_log("Hủy đơn hàng", "SUCCESS", f"Hoàn tồn kho và hủy đơn RowID: {db_rowid}")
+        write_log("Hủy đơn hàng", "SUCCESS", f"Hủy triệt để đơn mục RowID: {db_rowid}")
     except Exception as e: write_log("Hủy đơn hàng", "ERROR", str(e))
 
 # ==========================================
@@ -157,7 +155,6 @@ def init_local_db():
             if 'id' in df.columns: df['id'] = pd.to_numeric(df['id'], errors='coerce')
             df.to_sql(ws.title, conn, if_exists='replace', index=False)
     
-    # Auto-Clean dữ liệu rác
     conn.execute("DELETE FROM loai_than WHERE id IS NULL OR id = '' OR ten_than IS NULL OR TRIM(ten_than) = ''")
     conn.execute("DELETE FROM khach_hang WHERE id IS NULL OR id = '' OR ten_khach IS NULL OR TRIM(ten_khach) = ''")
     conn.execute("DELETE FROM nhan_vien WHERE id IS NULL OR id = '' OR ten_nhan_vien IS NULL OR TRIM(ten_nhan_vien) = ''")
@@ -206,7 +203,6 @@ def get_next_id(table, cursor):
     except: return 1
 
 def sinh_ma_don_hang_theo_ngay(date_str):
-    """Tạo mã đơn hàng dạng: YYYYMMDD-XXX"""
     with get_connection() as conn:
         count = conn.execute("SELECT COUNT(*) FROM don_hang WHERE ngay_ban=?", (date_str,)).fetchone()[0]
         stt = count + 1
@@ -277,7 +273,6 @@ if not st.session_state.logged_in:
                         try:
                             with get_connection() as conn:
                                 uid = get_next_id('users', conn.cursor())
-                                # Mặc định đăng ký mới là quyền lái xe chờ duyệt
                                 conn.cursor().execute("INSERT INTO users (id, username, password, role, status) VALUES (?, ?, ?, 'laixe', 'Chờ duyệt')", (uid, n_user, hash_password(n_pwd)))
                                 conn.commit()
                             st.success("Đăng ký thành công! Vui lòng báo Admin duyệt."); st.rerun()
@@ -318,7 +313,6 @@ with st.sidebar:
 # ==========================================
 if menu == "Thống Kê (HQ)":
     
-    # --- CHIA CỘT HEADER: ĐẶT NÚT REFRESH VÀ THỜI GIAN GÓC PHẢI ---
     col_head1, col_head2 = st.columns([3, 1])
     with col_head1:
         st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📊 PHÂN HỆ GIÁM SÁT KINH DOANH TỔNG THỂ</h1></div>", unsafe_allow_html=True)
@@ -335,10 +329,9 @@ if menu == "Thống Kê (HQ)":
         df_group = pd.read_sql_query('''SELECT dh.id as don_id, dh.ma_don_hien_thi, dh.thoi_gian_tao, dh.trang_thai_giao, dh.giao_gap, dh.tong_tien, dh.tien_con_no, dh.nguoi_tao, kh.ma_khach_hang, kh.ten_khach, nv.ten_nhan_vien FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id ORDER BY dh.id DESC''', conn.connection)
         df_kho_status = pd.read_sql_query("SELECT ten_than, ton_kho FROM loai_than", conn.connection)
 
-    # DỌN RÁC BẢNG THỐNG KÊ (Xóa dấu phẩy của Google Sheets)
+    # DỌN RÁC BẢNG THỐNG KÊ (Dùng apply(to_float) chống sập)
     if not df_flat.empty:
-        for c in ['don_gia', 'gia_nhap_mac_dinh', 'so_luong', 'thanh_tien']:
-            df_flat[c] = pd.to_numeric(df_flat[c].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
+        for c in ['don_gia', 'gia_nhap_mac_dinh', 'so_luong', 'thanh_tien']: df_flat[c] = df_flat[c].apply(to_float)
         df_flat['Date'] = pd.to_datetime(df_flat['thoi_gian_tao'])
         df_flat['loi_nhuan'] = (df_flat['don_gia'] - df_flat['gia_nhap_mac_dinh']) * df_flat['so_luong']
         
@@ -347,8 +340,7 @@ if menu == "Thống Kê (HQ)":
         elif time_filter == "Tháng này": df_flat = df_flat[(df_flat['Date'].dt.month == now_dt.month) & (df_flat['Date'].dt.year == now_dt.year)]
         
     if not df_group.empty:
-        for c in ['tong_tien', 'tien_con_no']:
-            df_group[c] = pd.to_numeric(df_group[c].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
+        for c in ['tong_tien', 'tien_con_no']: df_group[c] = df_group[c].apply(to_float)
         df_group['Date'] = pd.to_datetime(df_group['thoi_gian_tao'])
         
         if time_filter == "Hôm nay": df_group = df_group[df_group['Date'].dt.date == now_dt.date()]
@@ -576,12 +568,10 @@ elif menu == "Lập Đơn & In Phiếu":
                                     with get_connection() as conn:
                                         cur = conn.cursor()
                                         new_id = get_next_id('don_hang', cur)
-                                        # LƯU Ý QUAN TRỌNG: Lưu tổng tiền vào DB (đảm bảo ép kiểu float)
                                         cur.execute('INSERT INTO don_hang (id, ma_don_hien_thi, khach_hang_id, ngay_ban, thoi_gian_tao, trang_thai_giao, ghi_chu, giao_gap, tong_tien, tien_con_no, nguoi_tao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', (new_id, ma_don_final, to_int(khach_id), today_str, ts, 'Chờ giao hàng', g_chu, is_gap, float(total_val), float(total_val), st.session_state.current_user))
                                         for i in st.session_state.cart:
                                             ct_id = get_next_id('chi_tiet_don_hang', cur)
                                             cur.execute('INSERT INTO chi_tiet_don_hang (id, don_hang_id, loai_than_id, so_luong, don_gia) VALUES (?, ?, ?, ?, ?)', (ct_id, new_id, to_int(i['loai_than_id']), i['so_luong'], i['don_gia']))
-                                            # TRỪ TỒN KHO DB
                                             cur.execute("UPDATE loai_than SET ton_kho = ton_kho - ? WHERE id = ?", (i['so_luong'], to_int(i['loai_than_id'])))
                                         conn.commit()
                                     write_log("Lập đơn hàng", "SUCCESS", f"Mã phiếu xuất: {ma_don_final}")
@@ -631,7 +621,6 @@ elif menu == "Giao Hàng & Vận Tải":
                         st.button("🗑️ Hủy Đơn", key=f"huy_don_cho_{idx}_{r['db_rowid']}", on_click=cb_huy_don, args=(to_int(r['db_rowid']),))
 
     with tab2:
-        # LẤY tong_tien TỪ DATABASE VÀ ĐẢM BẢO CHUẨN HÓA DỮ LIỆU
         with get_connection() as conn: df_dang = pd.read_sql_query("SELECT rowid as db_rowid, id, ma_don_hien_thi, khach_hang_id, tong_tien FROM don_hang WHERE trang_thai_giao = 'Đang giao'", conn.connection)
         
         if df_dang.empty: 
@@ -646,7 +635,6 @@ elif menu == "Giao Hàng & Vận Tải":
                     c1, c2 = st.columns([4, 1])
                     with c1:
                         with st.form(key=f"form_done_gh_{idx}_{r['db_rowid']}"):
-                            # SỬ DỤNG HÀM TÁCH SỐ ĐỂ TRÁNH LỖI VALUE_ERROR
                             tong_tien_an_toan = to_int(r['tong_tien'])
                             st.write(f"Giá trị đơn hàng: <b>{fmt_vn(tong_tien_an_toan)} đ</b>", unsafe_allow_html=True)
                             
@@ -689,9 +677,8 @@ elif menu == "Sổ Quản Lý Nợ":
     with get_connection() as conn: df_no = pd.read_sql_query('''SELECT dh.id, dh.ma_don_hien_thi as "Mã Đơn", dh.ngay_ban as "Ngày", kh.ten_khach as "Khách Hàng", dh.tong_tien as "Tổng Tiền", dh.tien_da_tra as "Đã Trả", dh.tien_con_no as "CÒN NỢ" FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id WHERE dh.tien_con_no > 0 AND dh.trang_thai_giao = 'Đã hoàn thành' ''', conn.connection)
     if df_no.empty: st.success("Hệ thống sạch bóng nợ xấu. Không có dư nợ tồn đọng.")
     else:
-        # XÓA RÁC DỮ LIỆU CÔNG NỢ TỪ G-SHEETS
         for col in ['Tổng Tiền', 'Đã Trả', 'CÒN NỢ']:
-            df_no[col] = pd.to_numeric(df_no[col].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
+            df_no[col] = df_no[col].apply(to_float)
             
         st.dataframe(df_no.drop(columns=['id']).style.format({
             'Tổng Tiền': lambda x: fmt_vn(x), 'Đã Trả': lambda x: fmt_vn(x), 'CÒN NỢ': lambda x: fmt_vn(x)
@@ -723,7 +710,7 @@ elif menu == "Lịch Sử Đơn Hàng":
     st.markdown("### 🗂️ Tra Cứu Lịch Sử Giao Hàng")
     with get_connection() as conn: df_his = pd.read_sql_query('''SELECT dh.ma_don_hien_thi as "Mã Đơn", dh.thoi_gian_tao as "Ngày Giờ", kh.ten_khach as "Khách Hàng", nv.ten_nhan_vien as "Tài Xế", dh.tong_tien as "Tổng Tiền", dh.tien_con_no as "Nợ Lại", dh.nguoi_tao as "Người Lập" FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id WHERE dh.trang_thai_giao = 'Đã hoàn thành' ORDER BY dh.id DESC''', conn.connection)
     if not df_his.empty:
-        for col in ['Tổng Tiền', 'Nợ Lại']: df_his[col] = pd.to_numeric(df_his[col].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
+        for col in ['Tổng Tiền', 'Nợ Lại']: df_his[col] = df_his[col].apply(to_float)
         st.dataframe(df_his.style.format({'Tổng Tiền': lambda x: fmt_vn(x), 'Nợ Lại': lambda x: fmt_vn(x)}), hide_index=True, use_container_width=True)
         st.download_button("📥 XUẤT BÁO CÁO EXCEL TRẠM", data=df_his.to_csv(index=False, encoding='utf-8-sig'), file_name=f"BaoCao_BaiThan_{today_str}.csv", mime="text/csv")
 
@@ -802,7 +789,6 @@ elif menu == "Cài Đặt Hệ Thống":
                         with get_connection() as conn: 
                             nid = get_next_id('nhap_hang', conn.cursor()); real_id = df_t_show[df_t_show['db_rowid']==id_n]['id'].values[0]
                             conn.execute('''INSERT INTO nhap_hang(id, loai_than_id, ngay_nhap, xuong_nhap, so_luong, don_gia_nhap, nguoi_tao) VALUES(?,?,?,?,?,?,?)''', (nid, to_int(real_id), today_str, xuong, w_in, p_in, st.session_state.current_user))
-                            # CỘNG TỒN KHO KHI NHẬP HÀNG
                             conn.execute("UPDATE loai_than SET ton_kho=ton_kho+? WHERE rowid=?", (w_in, to_int(id_n))); conn.commit()
                         st.success("Tăng trữ lượng kho bãi thành công!"); st.rerun()
             st.markdown("#### 📜 NHẬT KÝ NHẬP KHO GẦN ĐÂY")
