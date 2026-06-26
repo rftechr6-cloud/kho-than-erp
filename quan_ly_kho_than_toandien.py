@@ -728,19 +728,29 @@ elif menu == "Giao Hàng & Vận Tải":
 
 elif menu == "Sổ Quản Lý Nợ":
     st.markdown("### 💰 Quản Lý Dòng Tiền & Công Nợ")
-    with get_connection() as conn: df_no = pd.read_sql_query('''SELECT dh.id, dh.ma_don_hien_thi as "Mã Đơn", dh.ngay_ban as "Ngày", kh.ten_khach as "Khách Hàng", dh.tong_tien as "Tổng Tiền", dh.tien_da_tra as "Đã Trả", dh.tien_con_no as "CÒN NỢ" FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id WHERE dh.tien_con_no > 0 AND dh.trang_thai_giao = 'Đã hoàn thành' ''', conn.connection)
-    if df_no.empty: st.success("Công ty không còn dư nợ tồn đọng.")
+    with get_connection() as conn: 
+        df_no = pd.read_sql_query('''SELECT dh.id, dh.ma_don_hien_thi as "Mã Đơn", dh.ngay_ban as "Ngày", kh.ten_khach as "Khách Hàng", dh.tong_tien as "Tổng Tiền", dh.tien_da_tra as "Đã Trả", dh.tien_con_no as "CÒN NỢ" FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id WHERE dh.tien_con_no > 0 AND dh.trang_thai_giao = 'Đã hoàn thành' ''', conn.connection)
+    
+    if df_no.empty: 
+        st.success("Công ty không còn dư nợ tồn đọng.")
     else:
+        # --- BƯỚC ÉP KIỂU QUAN TRỌNG ĐỂ TRÁNH LỖI VALUE_ERROR ---
+        for col in ['Tổng Tiền', 'Đã Trả', 'CÒN NỢ']:
+            df_no[col] = pd.to_numeric(df_no[col], errors='coerce').fillna(0)
+            
         st.dataframe(df_no.drop(columns=['id']).style.format({'Tổng Tiền':'{:,.0f}', 'Đã Trả':'{:,.0f}', 'CÒN NỢ':'{:,.0f}'}), hide_index=True)
         st.markdown(f"<h4 style='color:#b91c1c;'>TỔNG DƯ NỢ: {df_no['CÒN NỢ'].sum():,.0f} VNĐ</h4>", unsafe_allow_html=True)
+        
         with st.form("f_thu_no"):
             no_dict = dict(zip(df_no['id'], df_no['Mã Đơn'].astype(str) + " - " + df_no['Khách Hàng'].astype(str)))
             id_don_no = st.selectbox("Gạch nợ đơn:", options=list(no_dict.keys()), format_func=lambda x: no_dict.get(x))
             info_no = df_no[df_no['id'] == id_don_no].iloc[0] if not df_no[df_no['id'] == id_don_no].empty else None
+            
             if info_no is not None:
-                tien_thu = st.number_input("Số tiền thu (đ):", min_value=1.0, max_value=float(info_no['CÒN NỢ']), value=float(info_no['CÒN NỢ']))
+                tien_thu = st.number_input("Số tiền thu (đ):", min_value=1.0, max_value=float(info_no['CÒN NỢ']), value=float(info_no['CÒN NỢ']), step=10000.0, format="%d")
                 ht_thu = st.selectbox("Hình thức:", ["Chuyển khoản", "Tiền mặt"])
-                if st.form_submit_button("Xác Nhận Khấu Trừ Nợ"):
+                
+                if st.form_submit_button("Xác Nhận Khấu Trừ Nợ", type="primary"):
                     ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
                     with get_connection() as c_update:
                         cur = c_update.cursor()
