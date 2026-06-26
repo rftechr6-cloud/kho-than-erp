@@ -607,9 +607,9 @@ elif menu == "Lập Đơn & In Phiếu":
                     
                     col_sl, col_dg = st.columns(2)
                     with col_sl:
-                        sl = st.number_input("Khối lượng (kg):", min_value=1.0, value=1000.0, step=100.0, format="%d")
+                        sl = st.number_input("Khối lượng (kg):", min_value=1, value=1000, step=100, format="%d")
                     with col_dg:
-                        dg = st.number_input("Đơn giá bán (đ/kg):", value=float(gia_goi_y), step=500.0, format="%d")
+                        dg = st.number_input("Đơn giá bán (đ/kg):", value=int(float(gia_goi_y)), step=500, format="%d")
                     
                     if st.button("➕ Thêm vào phiếu"):
                         if any(i['loai_than_id'] == to_int(t_id) for i in st.session_state.cart): st.error("Mã này đã có trong giỏ!")
