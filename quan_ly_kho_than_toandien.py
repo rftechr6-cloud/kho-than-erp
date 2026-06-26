@@ -196,7 +196,15 @@ def get_next_id(table, cursor):
         val = cursor.fetchone()[0]
         return 1 if pd.isna(val) or val is None or str(val).strip() == '' else to_int(val) + 1
     except: return 1
-
+def sinh_ma_don_hang_theo_ngay(date_str):
+    """Tạo mã đơn hàng dạng: YYYYMMDD-XXX"""
+    with get_connection() as conn:
+        # Lấy số thứ tự đơn trong ngày hiện tại
+        count = conn.execute("SELECT COUNT(*) FROM don_hang WHERE ngay_ban=?", (date_str,)).fetchone()[0]
+        stt = count + 1
+        # Format: 20260626-001 (Loại bỏ tiền tố DON-)
+        formatted_date = date_str.replace("-", "")
+        return f"{formatted_date}-{stt:03d}"
 def init_database():
     with get_connection() as conn:
         cursor = conn.cursor()
