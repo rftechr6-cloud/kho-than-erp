@@ -92,7 +92,7 @@ def cb_huy_don(db_rowid):
 # ==========================================
 # 1. TỐI ƯU GIAO DIỆN
 # ==========================================
-st.set_page_config(page_title="ERP Kho Than V9.8", page_icon="🪨", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Quản lý kho than", page_icon="🪨", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -245,7 +245,7 @@ if not st.session_state.logged_in:
         with tab_login:
             with st.form("login_form"):
                 user = st.text_input("Tài khoản:"); pwd = st.text_input("Mật khẩu:", type="password")
-                if st.form_submit_button("Đăng Nhập Nhận Ca", type="primary"):
+                if st.form_submit_button("Đăng Nhập ", type="primary"):
                     with get_connection() as conn:
                         res = conn.cursor(); res.execute("SELECT role, status FROM users WHERE username=? AND password=?", (user, hash_password(pwd)))
                         data = res.fetchone()
