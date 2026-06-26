@@ -273,14 +273,18 @@ if not st.session_state.logged_in:
 # ==========================================
 ROLE_MENUS = {
     "admin": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Giao Hàng & Vận Tải", "Sổ Quản Lý Nợ", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"],
+    "manager": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Sổ Quản Lý Nợ", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"], # Thêm vào đây
     "ketoan": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Sổ Quản Lý Nợ", "Lịch Sử Đơn Hàng"],
     "laixe": ["Giao Hàng & Vận Tải", "Lịch Sử Đơn Hàng"]
 }
+
 ROLE_ICONS = {
     "admin": ['bar-chart-fill', 'receipt-cutoff', 'truck', 'wallet-fill', 'clock-history', 'gear-fill'],
+    "manager": ['bar-chart-fill', 'receipt-cutoff', 'wallet-fill', 'clock-history', 'gear-fill'], # Thêm vào đây
     "ketoan": ['bar-chart-fill', 'receipt-cutoff', 'wallet-fill', 'clock-history'],
     "laixe": ['truck', 'clock-history']
 }
+
 
 current_role = st.session_state.user_role
 if current_role not in ROLE_MENUS: current_role = "laixe" # Fallback an toàn
