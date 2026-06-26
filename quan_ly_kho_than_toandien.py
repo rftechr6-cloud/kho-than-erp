@@ -11,9 +11,10 @@ import json
 from contextlib import contextmanager
 import threading
 from streamlit_option_menu import option_menu
+import streamlit.components.v1 as components
 
 # ==========================================
-# CẤU HÌNH TỌA ĐỘ BẢN ĐỒ (Thêm khu vực của bạn vào đây)
+# CẤU HÌNH TỌA ĐỘ BẢN ĐỒ
 # ==========================================
 MAP_COORDS = {
     "Hà Nội": {"lat": 21.0285, "lon": 105.8542},
@@ -24,7 +25,7 @@ MAP_COORDS = {
     "Hải Dương": {"lat": 20.9370, "lon": 106.3146},
     "Hải Phòng": {"lat": 20.8449, "lon": 106.6881},
     "Quảng Ninh": {"lat": 20.8561, "lon": 107.1361},
-    "Khác": {"lat": 21.0, "lon": 105.8} # Tọa độ mặc định nếu khu vực không có trong danh sách
+    "Khác": {"lat": 21.0, "lon": 105.8}
 }
 
 # ==========================================
@@ -92,7 +93,7 @@ def cb_huy_don(db_rowid):
 # ==========================================
 # 1. TỐI ƯU GIAO DIỆN
 # ==========================================
-st.set_page_config(page_title="Quản lý kho than", page_icon="🪨", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="ERP Kho Than V9.9", page_icon="🪨", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -108,9 +109,6 @@ st.markdown("""
         .text-purple { color: #8b5cf6; }
         .main-header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 24px; border-radius: 12px; color: white; margin-bottom: 25px; }
         .invoice-box { background: #ffffff; padding: 30px; border: 1px solid #e2e8f0; border-radius: 8px; margin: 10px auto; color: #1e293b; }
-        .invoice-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        .invoice-table th, .invoice-table td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
-        .invoice-table th { background-color: #f1f5f9; text-align: left; font-weight: bold; }
         .list-header { font-weight: bold; color: #475569; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0; margin-bottom: 10px; font-size: 14px;}
         .list-row { padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; align-items: center; display: flex;}
         .list-row:hover { background-color: #f8fafc; }
@@ -245,7 +243,7 @@ if not st.session_state.logged_in:
         with tab_login:
             with st.form("login_form"):
                 user = st.text_input("Tài khoản:"); pwd = st.text_input("Mật khẩu:", type="password")
-                if st.form_submit_button("Đăng Nhập ", type="primary"):
+                if st.form_submit_button("Đăng Nhập Nhận Ca", type="primary"):
                     with get_connection() as conn:
                         res = conn.cursor(); res.execute("SELECT role, status FROM users WHERE username=? AND password=?", (user, hash_password(pwd)))
                         data = res.fetchone()
@@ -285,7 +283,7 @@ with st.sidebar:
     menu = option_menu("CHỨC NĂNG CỐT LÕI", ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Giao Hàng & Vận Tải", "Sổ Quản Lý Nợ", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"], icons=['bar-chart-fill', 'receipt-cutoff', 'truck', 'wallet-fill', 'clock-history', 'gear-fill'], menu_icon="boxes", default_index=0)
 
 # ==========================================
-# PHÂN HỆ 1: THỐNG KÊ (BẢO LƯU 100% TÍNH NĂNG AI)
+# PHÂN HỆ 1: THỐNG KÊ
 # ==========================================
 if menu == "Thống Kê (HQ)":
     st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📊 PHÂN HỆ GIÁM SÁT KINH DOANH TỔNG THỂ</h1></div>", unsafe_allow_html=True)
@@ -323,7 +321,6 @@ if menu == "Thống Kê (HQ)":
     with c3: st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lợi Nhuận Gộp</div><div class='kpi-value text-purple'>{total_profit:,.0f} đ</div></div>", unsafe_allow_html=True)
     with c4: st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>🛑 Nợ Thực Tế</div><div class='kpi-value text-red'>{debt_rev:,.0f} đ</div></div>", unsafe_allow_html=True)
 
-    # ------------------ AI PHÂN TÍCH HÀNH VI (TÍCH HỢP HOÀN CHỈNH) ------------------
     st.markdown("### 🤖 Trợ Lý AI: Phân Tích Hành Vi & Gợi Ý Chiến Lược")
     with get_connection() as conn:
         df_ai = pd.read_sql_query("SELECT dh.id, dh.ngay_ban, kh.ten_khach, lt.ten_than, ctdh.so_luong, (ctdh.so_luong * ctdh.don_gia) as thanh_tien FROM don_hang dh JOIN chi_tiet_don_hang ctdh ON dh.id = ctdh.don_hang_id JOIN khach_hang kh ON dh.khach_hang_id = kh.id JOIN loai_than lt ON ctdh.loai_than_id = lt.id", conn.connection)
@@ -336,7 +333,6 @@ if menu == "Thống Kê (HQ)":
         df_ai_sort['ngay_ban_truoc'] = df_ai_sort.groupby('ten_khach')['ngay_ban_dt'].shift(1)
         df_ai_sort['khoang_cach_ngay'] = (df_ai_sort['ngay_ban_dt'] - df_ai_sort['ngay_ban_truoc']).dt.days
         
-        # Sửa lỗi chênh lệch timezone bằng cách làm phẳng now_dt
         now_dt_flat = now_dt.replace(tzinfo=None) 
         
         ai_khach = df_ai_sort.groupby('ten_khach').agg(ngay_mua_cuoi=('ngay_ban_dt', 'max'), chu_ky_mua=('khoang_cach_ngay', 'mean')).reset_index()
@@ -390,7 +386,7 @@ if menu == "Thống Kê (HQ)":
             st.plotly_chart(fig3)
 
 # ==========================================
-# PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU
+# PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU (GIAO DIỆN IN CHUYÊN NGHIỆP V9.9)
 # ==========================================
 elif menu == "Lập Đơn & In Phiếu":
     st.markdown("### 📋 Lập Lệnh Xuất Kho / Bán Hàng")
@@ -406,22 +402,144 @@ elif menu == "Lập Đơn & In Phiếu":
             if st.button("Quay lại"): st.session_state.last_order_id = None; st.rerun()
         else:
             master = df_master.iloc[0]
-            css_class = "max-width: 800px;" if print_config['kho_giay_mac_dinh'] == "A4 (Tiêu chuẩn văn phòng)" else "max-width: 600px; font-size: 13px;" if print_config['kho_giay_mac_dinh'] == "A5 (Khổ ngang bằng một nửa A4)" else "max-width: 320px; font-size: 11px;"
-            html_rows = ""; txt_rows = ""; total_val = 0
-            for _, r in details.iterrows():
-                thanh_tien = r['so_luong'] * r['don_gia']; total_val += thanh_tien
-                html_rows += f"<tr><td style='padding: 8px; border-bottom: 1px solid #e2e8f0;'>{r['ten_than']}</td><td style='padding: 8px; border-bottom: 1px solid #e2e8f0; text-align:center;'>{r['so_luong']:,.0f}</td><td style='padding: 8px; border-bottom: 1px solid #e2e8f0; text-align:right;'>{r['don_gia']:,.0f}</td><td style='padding: 8px; border-bottom: 1px solid #e2e8f0; text-align:right; font-weight:bold;'>{thanh_tien:,.0f}</td></tr>"
-                txt_rows += f"- {r['ten_than']}: {r['so_luong']:,.0f} kg x {r['don_gia']:,.0f} đ = {thanh_tien:,.0f} đ\n"
-                
-            full_html_print = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Phiếu Xuất - {master["ma_don_hien_thi"]}</title><style>body {{ font-family: sans-serif; color: #1e293b; margin: 20px; }} .invoice-box {{ {css_class}; margin: 0 auto; padding: 20px; border: 1px solid #ccc; }} table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }} th {{ background: #f1f5f9; text-align: left; padding: 10px; border-bottom: 2px solid #cbd5e1; }} @media print {{ .invoice-box {{ border: none; padding: 0; }} }}</style></head><body onload="window.print()"><div class="invoice-box"><h2 style="text-align:center; margin-bottom: 5px; color:#0f172a;">{print_config["ten_cua_hang"]}</h2><p style="text-align:center; margin-top:0; font-size:13px;">SĐT: <b>{print_config["so_dien_thoai"]}</b></p><hr style="border:0; border-top:1px dashed #cbd5e1; margin: 15px 0;"><h3 style="text-align:center; margin-top:10px; margin-bottom:5px;">PHIẾU XUẤT KHO</h3><p style="text-align:center; color:#64748b; margin-top:0; font-size:12px;">Mã Đơn: <b>{master["ma_don_hien_thi"]}</b> | Ngày: {master["thoi_gian_tao"]}</p><p style="margin-bottom:5px; margin-top:15px;"><b>Khách Hàng:</b> {master["ten_khach"]}</p><p style="margin-top:0; margin-bottom:15px;"><b>Địa chỉ:</b> {master["dia_chi"]} <br><b>Ghi chú:</b> {master["ghi_chu"]}</p><table><thead><tr><th>Chủng Loại</th><th style="text-align:center;">SL (kg)</th><th style="text-align:right;">Đơn Giá</th><th style="text-align:right;">Thành Tiền</th></tr></thead><tbody>{html_rows}<tr><td colspan="3" style="text-align:right; font-weight:bold; padding-top:15px; border:none;">TỔNG CỘNG:</td><td style="text-align:right; font-weight:bold; padding-top:15px; font-size:16px; border:none;">{total_val:,.0f} đ</td></tr></tbody></table><p style="margin-top:20px; font-size:13px; padding:12px; border:1px dashed #ccc;"><b>THANH TOÁN:</b><br>{print_config["thong_tin_ngan_hang"]}</p></div></body></html>"""
+            
+            # Khởi tạo chuỗi dữ liệu bảng
+            html_rows = ""
+            txt_rows = ""
+            total_val = 0
+            
+            for idx, r in enumerate(details.iterrows(), 1):
+                _, row = r
+                thanh_tien = row['so_luong'] * row['don_gia']
+                total_val += thanh_tien
+                # HTML Row cho bảng in đẹp
+                html_rows += f"""
+                    <tr>
+                        <td style='text-align:center;'>{idx}</td>
+                        <td>{row['ten_than']}</td>
+                        <td style='text-align:center;'>{row['so_luong']:,.0f}</td>
+                        <td style='text-align:right;'>{row['don_gia']:,.0f}</td>
+                        <td style='text-align:right; font-weight:bold;'>{thanh_tien:,.0f}</td>
+                    </tr>
+                """
+                # Row text thuần để gửi Zalo
+                txt_rows += f"- {row['ten_than']}: {row['so_luong']:,.0f} kg x {row['don_gia']:,.0f} đ = {thanh_tien:,.0f} đ\n"
+            
+            # GIAO DIỆN HTML/CSS CHUẨN DOANH NGHIỆP DÙNG ĐỂ IN/XUẤT PDF
+            full_html_print = f"""<!DOCTYPE html>
+            <html lang="vi">
+            <head>
+                <meta charset="utf-8">
+                <title>Hóa Đơn - {master["ma_don_hien_thi"]}</title>
+                <style>
+                    body {{ font-family: 'Arial', sans-serif; color: #333; margin: 0; padding: 20px; background-color: #f4f4f4; }}
+                    .invoice-container {{ background: #fff; max-width: 800px; margin: 0 auto; padding: 40px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }}
+                    .header {{ display: flex; justify-content: space-between; border-bottom: 2px solid #2563eb; padding-bottom: 20px; margin-bottom: 20px; }}
+                    .company-info h2 {{ margin: 0; color: #1e3a8a; font-size: 24px; text-transform: uppercase; }}
+                    .invoice-details {{ text-align: right; }}
+                    .invoice-details h1 {{ margin: 0; color: #2563eb; font-size: 28px; text-transform: uppercase; }}
+                    .customer-info {{ margin-bottom: 30px; padding: 15px; background-color: #f8fafc; border-left: 4px solid #3b82f6; }}
+                    table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 15px; }}
+                    th {{ background-color: #2563eb; color: white; padding: 12px; text-align: left; }}
+                    td {{ padding: 12px; border-bottom: 1px solid #e2e8f0; }}
+                    .total-row td {{ font-weight: bold; font-size: 18px; color: #dc2626; border-top: 2px solid #333; }}
+                    .footer {{ display: flex; justify-content: space-between; margin-top: 40px; text-align: center; }}
+                    .signature {{ width: 45%; }}
+                    .print-btn {{ display: block; width: 200px; margin: 10px auto 20px auto; padding: 12px 20px; background-color: #10b981; color: white; text-align: center; border: none; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; }}
+                    .print-btn:hover {{ background-color: #059669; }}
+                    @media print {{
+                        body {{ background-color: #fff; padding: 0; }}
+                        .invoice-container {{ box-shadow: none; padding: 0; max-width: 100%; }}
+                        .print-btn {{ display: none; }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="invoice-container">
+                    <button class="print-btn" onclick="window.print()">🖨️ BẤM VÀO ĐÂY ĐỂ IN / LƯU PDF</button>
+                    <div class="header">
+                        <div class="company-info">
+                            <h2>{print_config["ten_cua_hang"]}</h2>
+                            <p>Hotline hỗ trợ: <b>{print_config["so_dien_thoai"]}</b></p>
+                        </div>
+                        <div class="invoice-details">
+                            <h1>HÓA ĐƠN</h1>
+                            <p>Mã Phiếu: <b>{master["ma_don_hien_thi"]}</b></p>
+                            <p>Ngày Lập: {master["thoi_gian_tao"]}</p>
+                        </div>
+                    </div>
+                    <div class="customer-info">
+                        <p><b>Khách hàng:</b> {master["ten_khach"]}</p>
+                        <p><b>Địa chỉ nhận hàng:</b> {master["dia_chi"]}</p>
+                        <p><b>Ghi chú vận chuyển:</b> {master["ghi_chu"]}</p>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="text-align:center; width: 50px;">STT</th>
+                                <th>Chủng Loại Hàng Hóa</th>
+                                <th style="text-align:center;">Số Lượng (kg)</th>
+                                <th style="text-align:right;">Đơn Giá (đ)</th>
+                                <th style="text-align:right;">Thành Tiền (đ)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {html_rows}
+                            <tr class="total-row">
+                                <td colspan="4" style="text-align:right;">TỔNG CỘNG THANH TOÁN:</td>
+                                <td style="text-align:right;">{total_val:,.0f}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div style="margin-bottom: 30px; font-size: 14px; color: #475569;">
+                        <p><b>Thông tin thanh toán chuyển khoản:</b> <br>{print_config["thong_tin_ngan_hang"]}</p>
+                    </div>
+                    <div class="footer">
+                        <div class="signature">
+                            <p><b>Khách Hàng</b></p>
+                            <p><i>(Ký & Ghi rõ họ tên)</i></p>
+                        </div>
+                        <div class="signature">
+                            <p><b>Người Lập Phiếu</b></p>
+                            <p><i>(Ký & Ghi rõ họ tên)</i></p>
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>"""
+
             text_bill = f"HÓA ĐƠN GIAO HÀNG - {print_config['ten_cua_hang']}\nMã: {master['ma_don_hien_thi']} | Ngày: {master['thoi_gian_tao']}\nKhách: {master['ten_khach']}\nĐịa chỉ: {master['dia_chi']}\n-------------------------\n{txt_rows}-------------------------\nTỔNG CỘNG: {total_val:,.0f} VNĐ\nCK/TT: {print_config['thong_tin_ngan_hang']}\nCảm ơn quý khách!"
 
-            st.success("Tạo đơn hàng thành công!")
-            b64 = base64.b64encode(full_html_print.encode('utf-8')).decode()
-            st.markdown(f'<a href="data:text/html;base64,{b64}" target="_blank" style="display: block; text-align: center; background-color: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; font-weight: bold; text-decoration: none; margin-top: 15px; font-size: 16px;">🖨️ XEM & IN HÓA ĐƠN</a>', unsafe_allow_html=True)
-            st.markdown("<br>**Hoặc COPY gửi qua Zalo:**", unsafe_allow_html=True)
+            st.success("🎉 Tạo đơn hàng thành công!")
+            
+            # --- HIỂN THỊ XEM TRƯỚC HÓA ĐƠN ĐẸP NGAY TRONG APP ---
+            st.markdown("### 🖨️ XEM TRƯỚC HÓA ĐƠN:")
+            st.info("💡 Bạn có thể cuộn xuống và bấm trực tiếp nút IN màu xanh ở bên trong bảng dưới đây, hoặc dùng nút Tải File phía dưới.")
+            components.html(full_html_print, height=600, scrolling=True)
+
+            # --- NÚT TẢI XUỐNG VÀ NÚT TẠO MỚI ---
+            st.markdown("<br>", unsafe_allow_html=True)
+            col_btn1, col_btn2 = st.columns(2)
+            
+            with col_btn1:
+                # Nút tải xuống file HTML (Dễ dàng in ấn hoặc lưu PDF)
+                st.download_button(
+                    label="📥 TẢI FILE HÓA ĐƠN (Hỗ trợ in ấn / Lưu PDF)",
+                    data=full_html_print.encode('utf-8'),
+                    file_name=f"HoaDon_{master['ma_don_hien_thi']}.html",
+                    mime="text/html",
+                    use_container_width=True
+                )
+                
+            with col_btn2:
+                if st.button("🔄 LẬP ĐƠN HÀNG MỚI TIẾP THEO", type="primary", use_container_width=True):
+                    st.session_state.last_order_id = None
+                    st.rerun()
+
+            st.markdown("---")
+            st.markdown("### 📱 Hoặc COPY Text gửi nhanh qua Zalo:")
             st.code(text_bill, language="text")
-            if st.button("🔄 LẬP ĐƠN MỚI TIẾP THEO"): st.session_state.last_order_id = None; st.rerun()
+            
     else:
         with get_connection() as conn:
             df_khach = pd.read_sql_query("SELECT rowid as db_rowid, id, ma_khach_hang, ten_khach FROM khach_hang", conn.connection)
@@ -704,11 +822,6 @@ elif menu == "Cài Đặt Hệ Thống":
         st.markdown("#### 📋 DANH SÁCH KHÁCH HÀNG VÀ NÚT XÓA NHANH")
         if not df_k.empty: 
             c1, c2, c3, c4, c5 = st.columns([1.5, 3, 2, 4, 1.5])
-            c1.markdown("<div class='list-header'>Mã KH</div>", unsafe_allow_html=True)
-            c2.markdown("<div class='list-header'>Tên Khách</div>", unsafe_allow_html=True)
-            c3.markdown("<div class='list-header'>SĐT</div>", unsafe_allow_html=True)
-            c4.markdown("<div class='list-header'>Địa Chỉ</div>", unsafe_allow_html=True)
-            c5.markdown("<div class='list-header'>Thao tác</div>", unsafe_allow_html=True)
             for idx, r in df_k.iterrows():
                 cc1, cc2, cc3, cc4, cc5 = st.columns([1.5, 3, 2, 4, 1.5])
                 cc1.markdown(f"<div class='list-row'>{r['ma_khach_hang']}</div>", unsafe_allow_html=True)
