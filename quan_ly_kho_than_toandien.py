@@ -884,77 +884,67 @@ elif menu == "Cài Đặt Hệ Thống":
                 with get_connection() as conn: conn.execute("UPDATE cau_hinh_in SET ten_cua_hang=?, so_dien_thoai=?, thong_tin_ngan_hang=?, kho_giay_mac_dinh=? WHERE id=1", (ten_ch, sdt_ch, stk_ch, kho_giay)); conn.commit()
                 st.success("Đồng bộ tham số in ấn thành công!"); st.rerun()
 
-  # ------------------ 6. QUẢN LÝ TÀI KHOẢN ------------------
-elif tab_sys == "6. Quản Lý Tài Khoản (Admin)":
-    # Phân quyền: Chỉ admin và quanly được vào xem danh sách
-    if st.session_state.get('role') not in ['admin', 'quanly']:
-        st.error("⚠️ Bạn không có quyền truy cập vào mục này!")
-    else:
-        with get_connection() as conn: 
-            df_users = pd.read_sql_query("SELECT rowid as db_rowid, id, username, role, status FROM users WHERE username != 'admin'", conn.connection)
+ # ------------------ 6. ADMIN (PHÂN QUYỀN VÀ XÓA TÀI KHOẢN) ------------------
+    elif tab_sys == "6. Quản Lý Tài Khoản (Admin)":
+        with get_connection() as conn: df_users = pd.read_sql_query("SELECT rowid as db_rowid, id, username, role, status FROM users WHERE username != 'admin'", conn.connection)
         
         t_u1, t_u2 = st.tabs(["🟡 Phê Duyệt Tài Khoản Mới", "🟢 Cấp Quyền & Xóa Tài Khoản Cũ"])
-        
-        roles_list = ["quanly", "ketoan", "laixe"]
-        role_map = {"quanly": "Quản lý bãi", "ketoan": "Kế toán / Sale", "laixe": "Tài xế lái xe"}
-
         with t_u1:
-            pending = df_users[df_users['status'] == 'Chờ duyệt']
-            if not pending.empty:
-                for idx, r in pending.iterrows():
+            if not df_users.empty:
+                for idx, r in df_users[df_users['status'] == 'Chờ duyệt'].iterrows():
                     with st.form(f"f_approve_{r['db_rowid']}"):
                         st.write(f"Tài khoản đăng ký: **{r['username']}**")
-                        role_assign = st.selectbox("Gắn chức vụ:", options=roles_list, format_func=lambda x: role_map[x])
+                        role_assign = st.selectbox("Gắn chức vụ:", options=["ketoan", "laixe"], format_func=lambda x: "Kế toán / Sale" if x == "ketoan" else "Tài xế lái xe")
                         c1, c2 = st.columns(2)
                         with c1: 
                             if st.form_submit_button("✅ Cấp quyền"):
                                 with get_connection() as c: c.execute("UPDATE users SET status='Đã duyệt', role=? WHERE rowid=?", (role_assign, r['db_rowid'])); c.commit()
                                 st.rerun()
                         with c2:
-                            # Chỉ Admin mới được xóa
-                            if st.session_state.get('role') == 'admin':
-                                if st.form_submit_button("❌ Từ chối & Xóa"):
-                                    cb_xoa_user(r['db_rowid']); st.rerun()
-                            else:
-                                st.warning("Chỉ Admin mới có quyền xóa.")
-            else: st.info("Không có tài khoản chờ duyệt.")
-
+                            if st.form_submit_button("❌ Từ chối & Xóa"):
+                                cb_xoa_user(r['db_rowid']); st.rerun()
         with t_u2:
-            st.info("💡 Bạn có thể thay đổi chức vụ hoặc xóa tài khoản nhân viên đã nghỉ việc.")
-            for idx, r in df_users[df_users['status'] == 'Đã duyệt'].iterrows():
-                with st.expander(f"👤 {r['username']} (Quyền: {role_map.get(r['role'], 'N/A')})"):
-                    with st.form(f"f_edit_u_{r['db_rowid']}"):
-                        new_role = st.selectbox("Đổi chức vụ:", options=roles_list, index=roles_list.index(r['role']), format_func=lambda x: role_map[x])
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            if st.form_submit_button("💾 Lưu Quyền Mới"):
-                                with get_connection() as c: c.execute("UPDATE users SET role=? WHERE rowid=?", (new_role, r['db_rowid'])); c.commit()
-                                st.success("Cập nhật thành công!"); st.rerun()
-                        with c2:
-                            # Chỉ Admin mới được xóa
-                            if st.session_state.get('role') == 'admin':
-                                if st.form_submit_button("🗑️ Xóa vĩnh viễn"):
+            st.info("💡 Bạn có thể thay đổi chức vụ hoặc Xóa vĩnh viễn tài khoản của nhân viên đã nghỉ việc tại đây.")
+            if not df_users.empty:
+                for idx, r in df_users[df_users['status'] == 'Đã duyệt'].iterrows():
+                    with st.expander(f"👤 {r['username']} (Quyền: {'Kế toán' if r['role'] == 'ketoan' else 'Lái xe'})"):
+                        with st.form(f"f_edit_u_{r['db_rowid']}"):
+                            new_role = st.selectbox("Đổi chức vụ:", options=["ketoan", "laixe"], index=0 if r['role'] == 'ketoan' else 1, format_func=lambda x: "Kế toán / Sale" if x == "ketoan" else "Tài xế lái xe")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if st.form_submit_button("💾 Lưu Quyền Mới"):
+                                    with get_connection() as c: c.execute("UPDATE users SET role=? WHERE rowid=?", (new_role, r['db_rowid'])); c.commit()
+                                    st.success("Đã đổi quyền thành công!"); st.rerun()
+                            with c2:
+                                if st.form_submit_button("🗑️ Xóa vĩnh viễn (Nghỉ việc)"):
                                     cb_xoa_user(r['db_rowid']); st.rerun()
 
-# ------------------ 7. SYSTEM LOG ------------------
-elif tab_sys == "7. System Log (Theo dõi lỗi)":
-    st.markdown("### 🛠️ NHẬT KÝ HỆ THỐNG")
-    
-    # Chỉ Admin mới được thấy khu vực reset
-    if st.session_state.get('role') == 'admin':
-        with st.expander("🚨 KHU VỰC KHẨN CẤP (ADMIN ONLY)"):
-            pass_confirm = st.text_input("🔑 XÁC MINH CHÌA KHÓA BẢO MẬT:", type="password")
-            if st.button("💥 KÍCH HOẠT FACTORY RESET"):
-                if hash_password(pass_confirm) == hash_password(st.secrets["admin_pass"]):
-                    # [Code reset của bạn ở đây...]
-                    st.success("Đã reset hệ thống!")
-                else:
-                    st.error("Sai mật khẩu!")
-    
-    # Hiển thị log cho cả Admin và Quản lý
-    if st.session_state.get('role') in ['admin', 'quanly']:
-        if st.button("🗑️ Xóa bảng Log màn hình"): st.session_state.sys_log = []; st.rerun()
-        log_content = "\n".join(st.session_state.sys_log) if st.session_state.sys_log else "Hệ thống ổn định."
+    # ------------------ 7. SYSTEM LOG ------------------
+    elif tab_sys == "7. System Log (Theo dõi lỗi)":
+        st.markdown("### 🛠️ NHẬT KÝ HỆ THỐNG & PHÂN HỆ KHẨN CẤP AN TOÀN")
+        st.markdown("<div class='danger-zone'><h4>⚠️ KHU VỰC KHẨN CẤP GIỚI HẠN QUẢN TRỊ VIÊN</h4><p>Tính năng này yêu cầu mật khẩu Admin tối cao để giải phóng, xóa trắng toàn bộ dữ liệu bãi xe SQLite và dọn dẹp các trang tính Google Sheets về rỗng ban đầu.</p></div><br>", unsafe_allow_html=True)
+        col_log1, col_log2 = st.columns([1, 1])
+        with col_log1:
+            if st.button("🗑️ Xóa bảng Log màn hình"): st.session_state.sys_log = []; st.rerun()
+        with col_log2:
+            if st.session_state.user_role == 'admin':
+                pass_confirm = st.text_input("🔑 XÁC MINH CHÌA KHÓA BẢO MẬT ADMIN ĐỂ RESET KHẨN CẤP:", type="password", key="field_secure_factory_reset")
+                if st.button("🚨 KÍCH HOẠT QUY TRÌNH FACTORY RESET", type="primary"):
+                    if hash_password(pass_confirm) == hash_password(st.secrets["admin_pass"]):
+                        try:
+                            with get_connection() as conn:
+                                for t in ['loai_than', 'khach_hang', 'nhan_vien', 'gia_rieng', 'lich_su_gia', 'don_hang', 'chi_tiet_don_hang', 'nhap_hang', 'lich_su_thanh_toan']: conn.execute(f"DELETE FROM {t}")
+                                conn.commit()
+                            try:
+                                sheet = get_gspread_client().open_by_url(SHEET_URL)
+                                for ws in sheet.worksheets():
+                                    if ws.title not in ['users', 'cau_hinh_in']: ws.clear()
+                            except: pass
+                            st.session_state.sys_log = []
+                            write_log("FACTORY RESET", "SUCCESS", "Hệ thống dọn rác khẩn cấp thành công.")
+                            st.success("💥 Quy trình xóa dữ liệu hoàn tất! Toàn bộ cơ sở dữ liệu đã quay về trạng thái rỗng. Hãy bấm F5 để làm mới trình duyệt.")
+                        except Exception as e: write_log("FACTORY RESET", "ERROR", str(e))
+                    else: st.error("❌ XÁC MINH SAI MẬT KHẨU! Lệnh xóa hệ thống đã bị chặn đứng tự động.")
+            else: st.error("🔒 Tài khoản của bạn không có quyền thực hiện lệnh hủy diệt hệ thống.")
+        log_content = "\n".join(st.session_state.sys_log) if st.session_state.sys_log else "Hệ thống đang hoạt động an toàn ổn định."
         st.markdown(f"<div class='log-box'>{log_content.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
-    else:
-        st.error("Bạn không có quyền xem log hệ thống.")
