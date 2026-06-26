@@ -12,6 +12,7 @@ from contextlib import contextmanager
 import threading
 from streamlit_option_menu import option_menu
 import streamlit.components.v1 as components
+import time  # THÊM THƯ VIỆN TIME ĐỂ AUTO-REFRESH
 
 # ==========================================
 # CẤU HÌNH TỌA ĐỘ ĐỊA LÝ BẢN ĐỒ MIỀN BẮC
@@ -196,15 +197,15 @@ def get_next_id(table, cursor):
         val = cursor.fetchone()[0]
         return 1 if pd.isna(val) or val is None or str(val).strip() == '' else to_int(val) + 1
     except: return 1
+
 def sinh_ma_don_hang_theo_ngay(date_str):
     """Tạo mã đơn hàng dạng: YYYYMMDD-XXX"""
     with get_connection() as conn:
-        # Lấy số thứ tự đơn trong ngày hiện tại
         count = conn.execute("SELECT COUNT(*) FROM don_hang WHERE ngay_ban=?", (date_str,)).fetchone()[0]
         stt = count + 1
-        # Format: 20260626-001 (Loại bỏ tiền tố DON-)
         formatted_date = date_str.replace("-", "")
         return f"{formatted_date}-{stt:03d}"
+
 def init_database():
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -269,7 +270,6 @@ if not st.session_state.logged_in:
                         try:
                             with get_connection() as conn:
                                 uid = get_next_id('users', conn.cursor())
-                                # Mặc định đăng ký mới là quyền lái xe chờ duyệt
                                 conn.cursor().execute("INSERT INTO users (id, username, password, role, status) VALUES (?, ?, ?, 'laixe', 'Chờ duyệt')", (uid, n_user, hash_password(n_pwd)))
                                 conn.commit()
                             st.success("Đăng ký thành công! Vui lòng báo Admin duyệt."); st.rerun()
@@ -281,25 +281,24 @@ if not st.session_state.logged_in:
 # ==========================================
 ROLE_MENUS = {
     "admin": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Giao Hàng & Vận Tải", "Sổ Quản Lý Nợ", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"],
-    "manager": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Sổ Quản Lý Nợ", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"], # Thêm vào đây
+    "manager": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Sổ Quản Lý Nợ", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"], 
     "ketoan": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Sổ Quản Lý Nợ", "Lịch Sử Đơn Hàng"],
     "laixe": ["Giao Hàng & Vận Tải", "Lịch Sử Đơn Hàng"]
 }
 
 ROLE_ICONS = {
     "admin": ['bar-chart-fill', 'receipt-cutoff', 'truck', 'wallet-fill', 'clock-history', 'gear-fill'],
-    "manager": ['bar-chart-fill', 'receipt-cutoff', 'wallet-fill', 'clock-history', 'gear-fill'], # Thêm vào đây
+    "manager": ['bar-chart-fill', 'receipt-cutoff', 'wallet-fill', 'clock-history', 'gear-fill'], 
     "ketoan": ['bar-chart-fill', 'receipt-cutoff', 'wallet-fill', 'clock-history'],
     "laixe": ['truck', 'clock-history']
 }
 
-
 current_role = st.session_state.user_role
-if current_role not in ROLE_MENUS: current_role = "laixe" # Fallback an toàn
-# --- THÊM ĐOẠN KHỞI TẠO NÀY NGAY PHÍA DƯỚI ---
+if current_role not in ROLE_MENUS: current_role = "laixe" 
 is_admin = (current_role == 'admin')
 is_manager = (current_role == 'manager')
-can_edit = is_admin # Chỉ admin mới được sửa/xóa, manager chỉ xem
+can_edit = is_admin 
+
 with st.sidebar:
     st.markdown(f"### 🪨 TRẠM VẬN HÀNH\n• Người dùng: **{st.session_state.current_user}**\n• Quyền hạn: **{current_role.upper()}**")
     if st.button("🚪 Đăng Xuất"): st.session_state.clear(); st.rerun()
@@ -307,10 +306,20 @@ with st.sidebar:
     menu = option_menu("CHỨC NĂNG CHÍNH", ROLE_MENUS[current_role], icons=ROLE_ICONS[current_role], menu_icon="boxes", default_index=0)
 
 # ==========================================
-# PHÂN HỆ 1: THỐNG KÊ (HQ DASHBOARD TÍCH HỢP)
+# PHÂN HỆ 1: THỐNG KÊ (HQ DASHBOARD - TÍCH HỢP AUTO-REFRESH & TIME)
 # ==========================================
 if menu == "Thống Kê (HQ)":
-    st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📊 PHÂN HỆ GIÁM SÁT KINH DOANH TỔNG THỂ</h1></div>", unsafe_allow_html=True)
+    
+    # --- CHIA CỘT HEADER: ĐẶT NÚT REFRESH VÀ THỜI GIAN GÓC PHẢI ---
+    col_head1, col_head2 = st.columns([3, 1])
+    with col_head1:
+        st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📊 PHÂN HỆ GIÁM SÁT KINH DOANH TỔNG THỂ</h1></div>", unsafe_allow_html=True)
+    with col_head2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        auto_refresh = st.checkbox("🔄 Tự động làm mới (30s)", value=True, help="Tự động cập nhật dữ liệu để phát hiện đơn hàng mới liên tục.")
+        current_time_str = now_dt.strftime('%H:%M:%S | %d/%m/%Y')
+        st.markdown(f"<div style='font-size:13px; color:#10b981; font-weight:bold; text-align:right;'>⏳ Cập nhật lúc: {current_time_str}</div>", unsafe_allow_html=True)
+
     time_filter = st.radio("⏳ Mốc thời gian:", ["Hôm nay", "Tuần này", "Tháng này", "Tất cả thời gian"], horizontal=True)
 
     with get_connection() as conn:
@@ -347,14 +356,12 @@ if menu == "Thống Kê (HQ)":
     total_orders = df_group['don_id'].nunique() if not df_group.empty else 0
     total_profit = df_flat['loi_nhuan'].sum() if not df_flat.empty else 0
     
-    # HIỂN THỊ 4 THÈ KPI CHUẨN ĐỊNH DẠNG DẤU CHẤM VN
     c1, c2, c3, c4 = st.columns(4)
     with c1: st.markdown(f"<div class='kpi-card'><div class='kpi-label'>📦 Tổng Đơn Cần Giao</div><div class='kpi-value'>{total_orders} đơn <span style='font-size:13px;color:#64748b;'>({pending_count} chờ)</span></div></div>", unsafe_allow_html=True)
     with c2: st.markdown(f"<div class='kpi-card border-green'><div class='kpi-label'>💵 Doanh Thu Tạm Tính</div><div class='kpi-value text-green'>{fmt_vn(total_rev)} đ</div></div>", unsafe_allow_html=True)
     with c3: st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lợi Nhuận Gộp bãi</div><div class='kpi-value text-purple'>{fmt_vn(total_profit)} đ</div></div>", unsafe_allow_html=True)
     with c4: st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>🛑 Tổng Công Nợ</div><div class='kpi-value text-red'>{fmt_vn(debt_rev)} đ</div></div>", unsafe_allow_html=True)
 
-    # ------------------ CẢNH BÁO TIẾN ĐỘ GIAO HÀNG CHUẨN 2 GIỜ ------------------
     st.markdown("### 🕒 Giám Sát Tiến Độ Giao Hàng")
     if not df_group.empty:
         df_cho = df_group[df_group['trang_thai_giao'] != 'Đã hoàn thành'].copy()
@@ -367,7 +374,7 @@ if menu == "Thống Kê (HQ)":
                     if row_time.tz is None: row_time = row_time.tz_localize(timezone.utc) + pd.Timedelta(hours=7)
                     
                     wait_minutes = (current_time - row_time).total_seconds() / 60
-                    is_late = wait_minutes > 120 # Ngưỡng bảo vệ 2 giờ
+                    is_late = wait_minutes > 120 
                     
                     color = "#ef4444" if is_late else "#22c55e"
                     icon = "🚨" if is_late else "✅"
@@ -384,7 +391,6 @@ if menu == "Thống Kê (HQ)":
                     """, unsafe_allow_html=True)
                 except: continue
 
-    # ------------------ PHÂN TÍCH THÔNG MINH AI ------------------
     st.markdown("---")
     st.markdown("### 🤖 Trợ Lý AI: Phân Tích Hành Vi & Gợi Ý Chiến Lược")
     if not df_flat.empty:
@@ -421,7 +427,6 @@ if menu == "Thống Kê (HQ)":
                 if r['tang_truong'] > 0: st.markdown(f"<div class='ai-card'>📈 Chủng loại <b>{r['ten_than']}</b> sức mua TĂNG MẠNH <b>+{fmt_vn(r['tang_truong'])} kg</b>. Đề xuất chuẩn bị nhập thêm bãi.</div>", unsafe_allow_html=True)
                 elif r['tang_truong'] < 0: st.markdown(f"<div class='ai-card ai-danger'>📉 Chủng loại <b>{r['ten_than']}</b> sức mua GIẢM <b>{fmt_vn(r['tang_truong'])} kg</b>. Xem xét hạn chế nhập bến.</div>", unsafe_allow_html=True)
 
-    # ------------------ THỊ TRƯỜNG ĐỊA LÝ VÀ BIỂU ĐỒ ------------------
     st.markdown("---")
     st.markdown("### 🗺️ Bản Đồ Phân Bổ Mở Rộng Thị Trường")
     if not df_flat.empty:
@@ -437,9 +442,14 @@ if menu == "Thống Kê (HQ)":
         ch1, ch2 = st.columns(2) 
         with ch1: st.plotly_chart(px.pie(df_flat.groupby('ten_than')['so_luong'].sum().reset_index(), values='so_luong', names='ten_than', hole=0.4, title="Tỷ trọng than xuất kho"), use_container_width=True)
         with ch2: st.plotly_chart(px.pie(df_flat.groupby('ten_khach')['loi_nhuan'].sum().reset_index(), values='loi_nhuan', names='ten_khach', hole=0.4, title="Lợi nhuận theo khách hàng"), use_container_width=True)
+    
+    # ------------------ KÍCH HOẠT AUTO REFRESH ------------------
+    if auto_refresh:
+        time.sleep(30)
+        st.rerun()
 
 # ==========================================
-# PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU (CHIA 2 CỘT)
+# PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU
 # ==========================================
 elif menu == "Lập Đơn & In Phiếu":
     st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📋 HỆ THỐNG LẬP LỆNH XUẤT KHO CHUYÊN NGHIỆP</h1></div>", unsafe_allow_html=True)
@@ -572,7 +582,6 @@ elif menu == "Lập Đơn & In Phiếu":
                 st.markdown("</div>", unsafe_allow_html=True)
 
 # ==========================================
-# ==========================================
 # PHÂN HỆ 3: GIAO HÀNG & ĐIỀU VẬN TÀI XẾ
 # ==========================================
 elif menu == "Giao Hàng & Vận Tải":
@@ -581,7 +590,6 @@ elif menu == "Giao Hàng & Vận Tải":
     
     tab1, tab2 = st.tabs(["📦 Xe Chờ Đi Giao", "🏁 Nghiệm Thu Giao Xong"])
     
-    # ---------------- TAB 1: XE CHỜ GIAO ----------------
     with tab1:
         with get_connection() as conn: df_cho = pd.read_sql_query("SELECT rowid as db_rowid, id, ma_don_hien_thi, khach_hang_id, trang_thai_giao FROM don_hang WHERE trang_thai_giao = 'Chờ giao hàng'", conn.connection)
         
@@ -613,7 +621,6 @@ elif menu == "Giao Hàng & Vận Tải":
                     with c2: 
                         st.button("🗑️ Hủy Đơn", key=f"huy_don_cho_{idx}_{r['db_rowid']}", on_click=cb_huy_don, args=(to_int(r['db_rowid']),))
 
-    # ---------------- TAB 2: ĐANG GIAO & NGHIỆM THU ----------------
     with tab2:
         with get_connection() as conn: df_dang = pd.read_sql_query("SELECT rowid as db_rowid, id, ma_don_hien_thi, khach_hang_id, tong_tien FROM don_hang WHERE trang_thai_giao = 'Đang giao'", conn.connection)
         
@@ -629,12 +636,9 @@ elif menu == "Giao Hàng & Vận Tải":
                     c1, c2 = st.columns([4, 1])
                     with c1:
                         with st.form(key=f"form_done_gh_{idx}_{r['db_rowid']}"):
-                            # 1. Ép kiểu an toàn (Bỏ qua lỗi rỗng/chữ để tránh ValueError)
                             tong_tien_an_toan = int(to_float(r['tong_tien']))
-                            
                             st.write(f"Giá trị đơn hàng: <b>{fmt_vn(tong_tien_an_toan)} đ</b>", unsafe_allow_html=True)
                             
-                            # 2. Truyền biến an toàn vào number_input
                             tien_tra_ngay = st.number_input(
                                 "Cầm tiền mặt / CK thu ngay (đ):", 
                                 min_value=0, 
@@ -646,7 +650,6 @@ elif menu == "Giao Hàng & Vận Tải":
                             
                             pt_tt = st.selectbox("Cơ chế nhận tiền:", ["Chuyển khoản", "Tiền mặt"])
                             
-                            # 3. Lệnh xử lý khi xác nhận thu tiền
                             if st.form_submit_button("Xác Nhận Nghiệm Thu Hạ Hàng", type="primary"):
                                 tien_con_no_lai = to_float(r['tong_tien']) - tien_tra_ngay
                                 is_paid = 1 if tien_con_no_lai <= 0 else 0
@@ -713,7 +716,7 @@ elif menu == "Lịch Sử Đơn Hàng":
         st.download_button("📥 XUẤT BÁO CÁO EXCEL TRẠM", data=df_his.to_csv(index=False, encoding='utf-8-sig'), file_name=f"BaoCao_BaiThan_{today_str}.csv", mime="text/csv")
 
 # ==========================================
-# PHÂN HỆ 6: CÀI ĐẶT HỆ THỐNG (KHÔI PHỤC NÚT XÓA SỬA INLINE & QUYỀN NHÂN SỰ)
+# PHÂN HỆ 6: CÀI ĐẶT HỆ THỐNG
 # ==========================================
 elif menu == "Cài Đặt Hệ Thống":
     st.markdown("### ⚙️ Cấu Hình Danh Mục Cơ Sở Dữ Liệu")
@@ -899,7 +902,7 @@ elif menu == "Cài Đặt Hệ Thống":
                 with get_connection() as conn: conn.execute("UPDATE cau_hinh_in SET ten_cua_hang=?, so_dien_thoai=?, thong_tin_ngan_hang=?, kho_giay_mac_dinh=? WHERE id=1", (ten_ch, sdt_ch, stk_ch, kho_giay)); conn.commit()
                 st.success("Đồng bộ tham số in ấn thành công!"); st.rerun()
 
-# ------------------ 6. QUẢN LÝ TÀI KHOẢN ------------------
+    # ------------------ 6. QUẢN LÝ TÀI KHOẢN (ADMIN) ------------------
     elif tab_sys == "6. Quản Lý Tài Khoản (Admin)":
         if not is_admin:
             st.error("🔒 Chỉ quản trị viên (Admin) mới có quyền truy cập khu vực này.")
@@ -944,10 +947,8 @@ elif menu == "Cài Đặt Hệ Thống":
     elif tab_sys == "7. System Log (Theo dõi lỗi)":
         st.markdown("### 🛠️ NHẬT KÝ HỆ THỐNG")
         
-        # Manager chỉ được xem Log, không được thấy khu vực xóa dữ liệu
         if is_manager:
             st.warning("⚠️ Bạn là Quản lý, bạn chỉ có quyền xem nhật ký hệ thống.")
-        
         elif is_admin:
             st.markdown("<div class='danger-zone'><h4>⚠️ KHU VỰC KHẨN CẤP QUẢN TRỊ VIÊN</h4></div><br>", unsafe_allow_html=True)
             col_log1, col_log2 = st.columns([1, 1])
@@ -957,8 +958,19 @@ elif menu == "Cài Đặt Hệ Thống":
                 pass_confirm = st.text_input("🔑 XÁC MINH CHÌA KHÓA ADMIN:", type="password")
                 if st.button("🚨 KÍCH HOẠT FACTORY RESET", type="primary"):
                     if hash_password(pass_confirm) == hash_password(st.secrets["admin_pass"]):
-                        # [Giữ nguyên logic xóa dữ liệu của bạn ở đây]
-                        st.success("💥 Đã reset toàn bộ hệ thống!")
+                        try:
+                            with get_connection() as conn:
+                                for t in ['loai_than', 'khach_hang', 'nhan_vien', 'gia_rieng', 'lich_su_gia', 'don_hang', 'chi_tiet_don_hang', 'nhap_hang', 'lich_su_thanh_toan']: conn.execute(f"DELETE FROM {t}")
+                                conn.commit()
+                            try:
+                                sheet = get_gspread_client().open_by_url(SHEET_URL)
+                                for ws in sheet.worksheets():
+                                    if ws.title not in ['users', 'cau_hinh_in']: ws.clear()
+                            except: pass
+                            st.session_state.sys_log = []
+                            write_log("FACTORY RESET", "SUCCESS", "Hệ thống dọn rác khẩn cấp thành công.")
+                            st.success("💥 Quy trình xóa dữ liệu hoàn tất! Toàn bộ cơ sở dữ liệu đã quay về trạng thái rỗng. Hãy bấm F5 để làm mới trình duyệt.")
+                        except Exception as e: write_log("FACTORY RESET", "ERROR", str(e))
                     else: st.error("❌ Mật khẩu sai!")
         
         log_content = "\n".join(st.session_state.sys_log) if st.session_state.sys_log else "Hệ thống đang hoạt động an toàn."
