@@ -357,7 +357,39 @@ if menu == "Thống Kê (HQ)":
             for _, r in trend_than.iterrows():
                 if r['tang_truong'] > 0: st.markdown(f"<div class='ai-card'>📈 Chủng loại <b>{r['ten_than']}</b> sức mua TĂNG MẠNH <b>+{r['tang_truong']:,.0f} kg</b> so với tháng trước. Đề xuất chuẩn bị nhập thêm.</div>", unsafe_allow_html=True)
                 elif r['tang_truong'] < 0: st.markdown(f"<div class='ai-card ai-danger'>📉 Chủng loại <b>{r['ten_than']}</b> sức mua GIẢM <b>{r['tang_truong']:,.0f} kg</b>. Xem xét hạn chế nhập tàu.</div>", unsafe_allow_html=True)
-
+    st.markdown("---")
+    st.markdown("### 🚨 Giám Sát Tiến Độ Giao Hàng")
+    
+    with get_connection() as conn:
+        # Lấy lại dữ liệu đơn chưa hoàn thành
+        df_delay = pd.read_sql_query('''SELECT dh.ma_don_hien_thi, dh.thoi_gian_tao, dh.nguoi_tao, kh.ten_khach, nv.ten_nhan_vien FROM don_hang dh 
+                                        JOIN khach_hang kh ON dh.khach_hang_id = kh.id 
+                                        LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id 
+                                        WHERE dh.trang_thai_giao != 'Đã hoàn thành' ''', conn.connection)
+    
+    has_alert = False
+    if not df_delay.empty:
+        # Convert thời gian để tính toán an toàn
+        df_delay['thoi_gian_tao_dt'] = pd.to_datetime(df_delay['thoi_gian_tao'])
+        
+        for _, r in df_delay.iterrows():
+            try:
+                # Tính giờ chênh lệch
+                hours_elapsed = (now_dt - r['thoi_gian_tao_dt'].replace(tzinfo=timezone.utc)).total_seconds() / 3600
+                
+                if hours_elapsed > 4:
+                    has_alert = True
+                    tx_name = r['ten_nhan_vien'] if r['ten_nhan_vien'] else "Chưa phân xe"
+                    st.markdown(f"""
+                        <div class='delay-alert' style='border-left: 6px solid #ef4444; background-color: #fef2f2; padding: 15px; border-radius: 8px; margin-bottom: 10px; color: #991b1b;'>
+                            🚨 <b>ĐƠN TRỄ QUÁ 4 GIỜ (Mã: {r['ma_don_hien_thi']})</b><br>
+                            • Tài xế: {tx_name} | Khách: {r['ten_khach']} | Người lên đơn: <b>{r['nguoi_tao']}</b> | Chờ: {hours_elapsed:.1f} giờ
+                        </div>
+                    """, unsafe_allow_html=True)
+            except Exception: continue
+    
+    if not has_alert:
+        st.success("✅ Mọi đơn hàng đang trong tiến độ. Không có đơn nào trễ quá 4 giờ.")
     st.markdown("---")
     st.markdown("### 🗺️ Bản Đồ Phân Bổ Mở Rộng Thị Trường")
     if not df_flat.empty:
