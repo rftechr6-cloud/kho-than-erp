@@ -539,7 +539,7 @@ elif menu == "Lập Đơn & In Phiếu":
                                         conn.commit()
                                     write_log("Lập đơn hàng", "SUCCESS", f"Mã phiếu xuất: {ma_don_final}")
                                     st.session_state.cart = []; st.session_state.last_order_id = new_id; st.rerun()
-                                catch Exception as e: write_log("Lập đơn hàng", "ERROR", str(e))
+                                except Exception as e: write_log("Lập đơn hàng", "ERROR", str(e))
                 else: st.info("Giỏ hàng rỗng. Hãy chọn hàng hóa bên cột trái để tạo bảng hợp lệ.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
