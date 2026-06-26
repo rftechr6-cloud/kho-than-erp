@@ -15,22 +15,7 @@ import streamlit.components.v1 as components
 import time
 
 # ==========================================
-# CẤU HÌNH TỌA ĐỘ ĐỊA LÝ BẢN ĐỒ MIỀN BẮC
-# ==========================================
-MAP_COORDS = {
-    "Hà Nội": {"lat": 21.0285, "lon": 105.8542},
-    "Thái Nguyên": {"lat": 21.5942, "lon": 105.8482},
-    "Bắc Ninh": {"lat": 21.5928, "lon": 106.0598},
-    "Bắc Giang": {"lat": 21.2731, "lon": 106.1946},
-    "Hưng Yên": {"lat": 20.8532, "lon": 106.0583},
-    "Hải Dương": {"lat": 20.9370, "lon": 106.3146},
-    "Hải Phòng": {"lat": 20.8449, "lon": 106.6881},
-    "Quảng Ninh": {"lat": 20.8561, "lon": 107.1361},
-    "Khác": {"lat": 21.0, "lon": 105.8}
-}
-
-# ==========================================
-# CÁC HÀM XỬ LÝ ĐỊNH DẠNG & BẢO MẬT (CHỐNG LỖI UNICODE/VALUE)
+# CÁC HÀM XỬ LÝ ĐỊNH DẠNG & BẢO MẬT 
 # ==========================================
 def to_float(val):
     """Hàm bóc tách con số siêu mạnh, loại bỏ mọi dấu phẩy/chữ/bytes lỗi"""
@@ -46,12 +31,20 @@ def to_int(val):
     except: return 0
 
 def fmt_vn(val):
-    """Hàm định dạng số kiểu Việt Nam dùng dấu chấm (Ví dụ: 15000 -> 15.000)"""
+    """Hàm định dạng số kiểu Việt Nam dùng dấu chấm"""
     try: return f"{int(to_float(val)):,}".replace(",", ".")
     except: return "0"
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
+def parse_coords(coord_str):
+    """Phân tách tọa độ Lat, Lon từ Google Maps"""
+    try:
+        parts = str(coord_str).replace(" ", "").split(",")
+        return float(parts[0]), float(parts[1])
+    except:
+        return 0.0, 0.0
 
 # --- HỆ THỐNG PHÁT HIỆN & GHI LOG HỆ THỐNG ---
 if 'sys_log' not in st.session_state: st.session_state.sys_log = []
@@ -219,6 +212,13 @@ def init_database():
             cursor.execute("INSERT INTO users (id, username, password, role, status) VALUES (?, ?, ?, 'admin', 'Đã duyệt')", (uid, 'admin', hash_password(st.secrets["admin_pass"])))
         cursor.execute('''CREATE TABLE IF NOT EXISTS loai_than (id INTEGER PRIMARY KEY, ten_than VARCHAR(255) UNIQUE, gia_nhap_mac_dinh DOUBLE, gia_mac_dinh DOUBLE, ton_kho DOUBLE, nguoi_tao VARCHAR(255))''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS khach_hang (id INTEGER PRIMARY KEY, ma_khach_hang VARCHAR(50) UNIQUE, ten_khach VARCHAR(255) UNIQUE, sdt VARCHAR(50), dia_chi TEXT, khu_vuc VARCHAR(255), link_google_maps TEXT, nguoi_tao VARCHAR(255))''')
+        
+        # NÂNG CẤP CƠ SỞ DỮ LIỆU ĐỂ LƯU TỌA ĐỘ BẢN ĐỒ THỰC TẾ
+        cursor.execute("PRAGMA table_info(khach_hang)")
+        kh_cols = [col[1] for col in cursor.fetchall()]
+        if 'lat' not in kh_cols: cursor.execute("ALTER TABLE khach_hang ADD COLUMN lat DOUBLE DEFAULT 0.0")
+        if 'lon' not in kh_cols: cursor.execute("ALTER TABLE khach_hang ADD COLUMN lon DOUBLE DEFAULT 0.0")
+        
         cursor.execute('''CREATE TABLE IF NOT EXISTS nhan_vien (id INTEGER PRIMARY KEY, ten_nhan_vien VARCHAR(255) UNIQUE, sdt VARCHAR(50), chuc_vu VARCHAR(100))''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS gia_rieng (khach_hang_id INTEGER, loai_than_id INTEGER, gia_uu_dai DOUBLE, PRIMARY KEY (khach_hang_id, loai_than_id))''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS lich_su_gia (id INTEGER PRIMARY KEY, khach_hang_id INTEGER, loai_than_id INTEGER, gia_cu DOUBLE, gia_moi DOUBLE, ngay_thay_doi TIMESTAMP)''')
@@ -309,7 +309,7 @@ with st.sidebar:
     menu = option_menu("CHỨC NĂNG CHÍNH", ROLE_MENUS[current_role], icons=ROLE_ICONS[current_role], menu_icon="boxes", default_index=0)
 
 # ==========================================
-# PHÂN HỆ 1: THỐNG KÊ (HQ DASHBOARD - TÍCH HỢP AUTO-REFRESH & TIME)
+# PHÂN HỆ 1: THỐNG KÊ (HQ DASHBOARD - TÍCH HỢP AUTO-REFRESH & TỌA ĐỘ MỚI)
 # ==========================================
 if menu == "Thống Kê (HQ)":
     
@@ -325,7 +325,8 @@ if menu == "Thống Kê (HQ)":
     time_filter = st.radio("⏳ Mốc thời gian:", ["Hôm nay", "Tuần này", "Tháng này", "Tất cả thời gian"], horizontal=True)
 
     with get_connection() as conn:
-        df_flat = pd.read_sql_query('''SELECT dh.id as don_id, dh.thoi_gian_tao, dh.da_thanh_toan, dh.trang_thai_giao, dh.ngay_ban, kh.ten_khach, kh.khu_vuc, lt.ten_than, lt.gia_nhap_mac_dinh, ctdh.so_luong, ctdh.don_gia, (ctdh.so_luong * ctdh.don_gia) as thanh_tien FROM don_hang dh JOIN chi_tiet_don_hang ctdh ON dh.id = ctdh.don_hang_id JOIN khach_hang kh ON dh.khach_hang_id = kh.id JOIN loai_than lt ON ctdh.loai_than_id = lt.id''', conn.connection)
+        # QUERY ĐÃ NÂNG CẤP LẤY KH.LAT, KH.LON THAY VÌ MAP_COORDS
+        df_flat = pd.read_sql_query('''SELECT dh.id as don_id, dh.thoi_gian_tao, dh.da_thanh_toan, dh.trang_thai_giao, dh.ngay_ban, kh.ten_khach, kh.khu_vuc, kh.lat, kh.lon, lt.ten_than, lt.gia_nhap_mac_dinh, ctdh.so_luong, ctdh.don_gia, (ctdh.so_luong * ctdh.don_gia) as thanh_tien FROM don_hang dh JOIN chi_tiet_don_hang ctdh ON dh.id = ctdh.don_hang_id JOIN khach_hang kh ON dh.khach_hang_id = kh.id JOIN loai_than lt ON ctdh.loai_than_id = lt.id''', conn.connection)
         df_group = pd.read_sql_query('''SELECT dh.id as don_id, dh.ma_don_hien_thi, dh.thoi_gian_tao, dh.trang_thai_giao, dh.giao_gap, dh.tong_tien, dh.tien_con_no, dh.nguoi_tao, kh.ma_khach_hang, kh.ten_khach, nv.ten_nhan_vien FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id ORDER BY dh.id DESC''', conn.connection)
         df_kho_status = pd.read_sql_query("SELECT ten_than, ton_kho FROM loai_than", conn.connection)
 
@@ -426,15 +427,22 @@ if menu == "Thống Kê (HQ)":
                 if r['tang_truong'] > 0: st.markdown(f"<div class='ai-card'>📈 Chủng loại <b>{r['ten_than']}</b> sức mua TĂNG MẠNH <b>+{fmt_vn(r['tang_truong'])} kg</b>. Đề xuất chuẩn bị nhập thêm bãi.</div>", unsafe_allow_html=True)
                 elif r['tang_truong'] < 0: st.markdown(f"<div class='ai-card ai-danger'>📉 Chủng loại <b>{r['ten_than']}</b> sức mua GIẢM <b>{fmt_vn(r['tang_truong'])} kg</b>. Xem xét hạn chế nhập bến.</div>", unsafe_allow_html=True)
 
+    # ------------------ BẢN ĐỒ CHIẾN LƯỢC CỤ THỂ (MICRO MAPPING) ------------------
     st.markdown("---")
-    st.markdown("### 🗺️ Bản Đồ Phân Bổ Mở Rộng Thị Trường")
-    if not df_flat.empty:
-        map_data = df_flat.groupby('khu_vuc')['so_luong'].sum().reset_index()
-        map_data['lat'] = map_data['khu_vuc'].apply(lambda x: MAP_COORDS.get(x, MAP_COORDS["Khác"])['lat'])
-        map_data['lon'] = map_data['khu_vuc'].apply(lambda x: MAP_COORDS.get(x, MAP_COORDS["Khác"])['lon'])
-        fig_map = px.scatter_mapbox(map_data, lat="lat", lon="lon", size="so_luong", color="khu_vuc", zoom=7, height=400)
-        fig_map.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
-        st.plotly_chart(fig_map, use_container_width=True)
+    st.markdown("### 🗺️ Bản Đồ Phân Bổ Tiêu Thụ (Chi Tiết Từng Tuyến Phố)")
+    if not df_flat.empty and 'lat' in df_flat.columns:
+        # Lọc ra những khách hàng đã được nhập tọa độ thực tế
+        map_data = df_flat[(df_flat['lat'].notna()) & (df_flat['lat'] != 0.0) & (df_flat['lon'] != 0.0)]
+        if not map_data.empty:
+            map_data_group = map_data.groupby(['ten_khach', 'khu_vuc', 'lat', 'lon'])['so_luong'].sum().reset_index()
+            fig_map = px.scatter_mapbox(map_data_group, lat="lat", lon="lon", size="so_luong", color="ten_khach", 
+                                        hover_name="ten_khach", hover_data=["khu_vuc", "so_luong"], 
+                                        zoom=12, height=500) # Zoom=12 giúp nhìn rõ từng ngõ phố
+            fig_map.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})
+            st.plotly_chart(fig_map, use_container_width=True)
+            st.caption("💡 Mẹo: Những vòng tròn càng to thể hiện sản lượng tiêu thụ khu đó càng lớn. Nhìn vào đây bạn có thể cử Sale đến chào hàng các tiệm lân cận.")
+        else:
+            st.info("📌 Chưa có khách hàng nào được gắn tọa độ thực tế trên Google Maps. Hãy vào 'Cài Đặt -> Quản Lý Khách Hàng' để điền tọa độ nhé!")
 
     st.markdown("### 📊 Chi Tiết Các Mảng Thống Kê Phân Bổ")
     if not df_flat.empty:
@@ -751,10 +759,8 @@ elif menu == "Cài Đặt Hệ Thống":
                 
                 for idx, r in df_t_show.iterrows():
                     with st.container():
-                        if can_edit:
-                            cc1, cc2, cc3, cc4, cc5, cc6 = st.columns([3, 2, 2, 2, 1, 1])
-                        else:
-                            cc1, cc2, cc3, cc4 = st.columns([3, 2, 2, 2])
+                        if can_edit: cc1, cc2, cc3, cc4, cc5, cc6 = st.columns([3, 2, 2, 2, 1, 1])
+                        else: cc1, cc2, cc3, cc4 = st.columns([3, 2, 2, 2])
                             
                         cc1.markdown(f"<div class='list-row'>{r['Tên Loại Than']}</div>", unsafe_allow_html=True)
                         cc2.markdown(f"<div class='list-row'>{fmt_vn(r['Giá Nhập (đ)'])} đ</div>", unsafe_allow_html=True)
@@ -794,26 +800,37 @@ elif menu == "Cài Đặt Hệ Thống":
             st.markdown("#### 📜 NHẬT KÝ NHẬP KHO GẦN ĐÂY")
             st.dataframe(df_nhap, hide_index=True)
 
-    # ------------------ 2. KHÁCH HÀNG ------------------
+    # ------------------ 2. KHÁCH HÀNG (CẬP NHẬT TỌA ĐỘ) ------------------
     elif tab_sys == "2. Quản Lý Khách Hàng":
-        with get_connection() as conn: df_k = pd.read_sql_query("SELECT rowid as db_rowid, id, ma_khach_hang, ten_khach, sdt, dia_chi, khu_vuc, link_google_maps FROM khach_hang", conn.connection)
+        with get_connection() as conn: df_k = pd.read_sql_query("SELECT rowid as db_rowid, id, ma_khach_hang, ten_khach, sdt, dia_chi, khu_vuc, link_google_maps, lat, lon FROM khach_hang", conn.connection)
         
         if can_edit:
             st.markdown("#### Thêm Đối Tác Mới")
             with st.form("f_k_add"):
                 c1, c2 = st.columns(2)
-                with c1: kn = st.text_input("Tên KH:"); kp = st.text_input("SĐT:"); kkv = st.selectbox("Khu vực địa lý:", list(MAP_COORDS.keys()))
-                with c2: kd = st.text_input("Địa chỉ bãi nhận:"); kmap = st.text_input("Đường link Google Maps:")
+                with c1: 
+                    kn = st.text_input("Tên KH:")
+                    kp = st.text_input("SĐT:")
+                    kkv = st.text_input("Tuyến đường / Khu vực:", placeholder="VD: Phố Trạm, Long Biên")
+                with c2: 
+                    kd = st.text_input("Địa chỉ bãi nhận:")
+                    kmap = st.text_input("Đường link Google Maps:")
+                    k_toado = st.text_input("Tọa độ bản đồ (Lat, Lon):", placeholder="VD: 21.028514, 105.854166", help="Mở Google Maps, click chuột phải vào vị trí khách để copy dãy tọa độ dán vào đây.")
+                
                 if st.form_submit_button("Lưu Hồ Sơ"):
+                    lat, lon = parse_coords(k_toado)
                     with get_connection() as conn:
                         nid = get_next_id('khach_hang', conn.cursor())
-                        conn.execute("INSERT INTO khach_hang (id, ma_khach_hang, ten_khach, sdt, dia_chi, khu_vuc, link_google_maps, nguoi_tao) VALUES(?,?,?,?,?,?,?,?)", (nid, f"KH{nid:04d}", kn.strip(), kp, kd, kkv, kmap, st.session_state.current_user))
+                        conn.execute("INSERT INTO khach_hang (id, ma_khach_hang, ten_khach, sdt, dia_chi, khu_vuc, link_google_maps, nguoi_tao, lat, lon) VALUES(?,?,?,?,?,?,?,?,?,?)", (nid, f"KH{nid:04d}", kn.strip(), kp, kd, kkv, kmap, st.session_state.current_user, lat, lon))
                         conn.commit()
-                    st.success("Đã lưu hồ sơ đối tác VIP!"); st.rerun()
+                    st.success("Đã lưu hồ sơ đối tác VIP kèm định vị!"); st.rerun()
             st.markdown("---")
             
         st.markdown("#### 📋 Quản Lý Hồ Sơ Đối Tác")
         if not df_k.empty: 
+            # Hiển thị gộp chung lat, lon thành chuỗi cho dễ nhìn
+            df_k['toado_str'] = df_k.apply(lambda r: f"{r['lat']}, {r['lon']}" if r['lat'] and r['lat'] != 0.0 else "", axis=1)
+            
             c1, c2, c3, c4, c5 = st.columns([1.5, 3, 2, 4, 1.5])
             c1.markdown("<b>Mã KH</b>", unsafe_allow_html=True); c2.markdown("<b>Tên Khách</b>", unsafe_allow_html=True)
             c3.markdown("<b>SĐT</b>", unsafe_allow_html=True); c4.markdown("<b>Khu Vực</b>", unsafe_allow_html=True)
@@ -821,10 +838,8 @@ elif menu == "Cài Đặt Hệ Thống":
             
             for idx, r in df_k.iterrows():
                 with st.container():
-                    if can_edit:
-                        cc1, cc2, cc3, cc4, cc5, cc6 = st.columns([1.5, 3, 2, 4, 0.75, 0.75])
-                    else:
-                        cc1, cc2, cc3, cc4 = st.columns([1.5, 3, 2, 4])
+                    if can_edit: cc1, cc2, cc3, cc4, cc5, cc6 = st.columns([1.5, 3, 2, 4, 0.75, 0.75])
+                    else: cc1, cc2, cc3, cc4 = st.columns([1.5, 3, 2, 4])
                         
                     cc1.markdown(f"<div class='list-row'>{r['ma_khach_hang']}</div>", unsafe_allow_html=True)
                     cc2.markdown(f"<div class='list-row'>{r['ten_khach']}</div>", unsafe_allow_html=True)
@@ -840,10 +855,12 @@ elif menu == "Cài Đặt Hệ Thống":
                             with st.form(f"f_edit_kh_{r['db_rowid']}"):
                                 ekn = st.text_input("Tên đối tác:", value=r['ten_khach'])
                                 ekp = st.text_input("Liên hệ SĐT:", value=r['sdt'])
-                                ekk = st.selectbox("Khu vực:", list(MAP_COORDS.keys()), index=list(MAP_COORDS.keys()).index(r['khu_vuc']) if r['khu_vuc'] in MAP_COORDS else 0)
+                                ekk = st.text_input("Tuyến đường / Khu vực:", value=r['khu_vuc'])
+                                ek_toado = st.text_input("Tọa độ bản đồ (Lat, Lon):", value=r['toado_str'])
                                 if st.form_submit_button("Lưu thay đổi"):
+                                    lat, lon = parse_coords(ek_toado)
                                     with get_connection() as conn: 
-                                        conn.execute("UPDATE khach_hang SET ten_khach=?, sdt=?, khu_vuc=? WHERE rowid=?", (ekn.strip(), ekp, ekk, r['db_rowid'])); conn.commit()
+                                        conn.execute("UPDATE khach_hang SET ten_khach=?, sdt=?, khu_vuc=?, lat=?, lon=? WHERE rowid=?", (ekn.strip(), ekp, ekk, lat, lon, r['db_rowid'])); conn.commit()
                                     st.rerun()
 
     # ------------------ 3. TÀI XẾ ------------------
@@ -864,10 +881,8 @@ elif menu == "Cài Đặt Hệ Thống":
             
             for idx, r in df_nv.iterrows():
                 with st.container():
-                    if can_edit:
-                        cc1, cc2, cc3, cc4 = st.columns([4, 4, 1, 1])
-                    else:
-                        cc1, cc2 = st.columns([4, 4])
+                    if can_edit: cc1, cc2, cc3, cc4 = st.columns([4, 4, 1, 1])
+                    else: cc1, cc2 = st.columns([4, 4])
                         
                     cc1.markdown(f"<div class='list-row'>{r['ten_nhan_vien']}</div>", unsafe_allow_html=True)
                     cc2.markdown(f"<div class='list-row'>{r['sdt']}</div>", unsafe_allow_html=True)
