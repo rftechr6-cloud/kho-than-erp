@@ -453,42 +453,45 @@ elif menu == "Lập Đơn & In Phiếu":
         else:
             # GIAO DIỆN CHIA KHUNG 2 CỘT HIỆN ĐẠI (ĐÃ CẢI TIẾN)
             # GIAO DIỆN CHIA KHUNG 2 CỘT HIỆN ĐẠI (ĐÃ CẢI TIẾN)
+            # GIAO DIỆN CHIA KHUNG 2 CỘT HIỆN ĐẠI (ĐÃ CẢI TIẾN)
             panel_input, panel_cart = st.columns([2, 3])
             
             with panel_input:
                 st.markdown("#### 👤 Đối Tác & Chủng Loại")
-                    khach_dict = dict(zip(df_khach['db_rowid'], "[" + df_khach['ma_khach_hang'].astype(str) + "] " + df_khach['ten_khach'].astype(str)))
-                    khach_db_id = st.selectbox("Chọn Khách Hàng:", options=list(khach_dict.keys()), format_func=lambda x: khach_dict.get(x))
-                    khach_id = df_khach[df_khach['db_rowid']==khach_db_id]['id'].values[0]
-                    
-                    with get_connection() as conn: df_pb = pd.read_sql_query(f"SELECT loai_than_id FROM gia_rieng WHERE khach_hang_id = {to_int(khach_id)}", conn.connection)
-                    than_options = df_than[df_than['id'].isin(df_pb['loai_than_id'].tolist())] if not df_pb.empty else df_than
-                    if than_options.empty: than_options = df_than
-                    
-                    than_dict = dict(zip(than_options['db_rowid'], than_options['ten_than'].astype(str)))
-                    t_db_id = st.selectbox("Chọn Loại Than Xuất Bãi:", options=list(than_dict.keys()), format_func=lambda x: than_dict.get(x))
-                    t_id = than_options[than_options['db_rowid']==t_db_id]['id'].values[0]
-                    
-                    with get_connection() as conn: 
-                        gr_res = conn.cursor().execute("SELECT gia_uu_dai FROM gia_rieng WHERE khach_hang_id=? AND loai_than_id=?", (to_int(khach_id), to_int(t_id))).fetchone()
-                    
-                    df_tk_filter = df_than[df_than['db_rowid']==t_db_id]
-                    gia_goi_y = gr_res[0] if gr_res else (df_tk_filter['gia_mac_dinh'].values[0] if not df_tk_filter.empty else 0)
-                    ton_kho_hien_tai = to_float(df_tk_filter['ton_kho'].values[0]) if not df_tk_filter.empty else 0.0
-                    
-                    st.markdown(f"Trữ lượng bãi thực tế: <b style='color:#2563eb;'>{fmt_vn(ton_kho_hien_tai)} kg</b>", unsafe_allow_html=True)
-                    st.markdown("---")
-                    st.markdown("#### ⚙️ Khối Lượng & Định Giá")
-                    
-                    # SỬA TRIỆT ĐỂ KHÔNG BỊ HIỂN THỊ ,00 VÀ CẢNH BÁO VÀNG
-                    sl = st.number_input("Khối lượng xuất (kg):", min_value=1, value=1000, step=100, format="%d")
-                    dg = st.number_input("Đơn giá chốt bán (đ/kg):", min_value=1, value=int(float(gia_goi_y)), step=500, format="%d")
-                    
-                    if st.button("➕ NẠP VÀO PHIẾU XUẤT", use_container_width=True):
-                        if any(i['loai_than_id'] == to_int(t_id) for i in st.session_state.cart): st.error("Mặt hàng này đã nằm trong danh sách tạm tính!")
-                        else:
-                            st.session_state.cart.append({'loai_than_id': to_int(t_id), 'ten_than': than_dict.get(t_db_id), 'so_luong': sl, 'don_gia': dg, 'thanh_tien': sl * dg})
-                            st.rerun()
+                khach_dict = dict(zip(df_khach['db_rowid'], "[" + df_khach['ma_khach_hang'].astype(str) + "] " + df_khach['ten_khach'].astype(str)))
+                khach_db_id = st.selectbox("Chọn Khách Hàng:", options=list(khach_dict.keys()), format_func=lambda x: khach_dict.get(x))
+                khach_id = df_khach[df_khach['db_rowid']==khach_db_id]['id'].values[0]
+                
+                with get_connection() as conn: 
+                    df_pb = pd.read_sql_query(f"SELECT loai_than_id FROM gia_rieng WHERE khach_hang_id = {to_int(khach_id)}", conn.connection)
+                
+                than_options = df_than[df_than['id'].isin(df_pb['loai_than_id'].tolist())] if not df_pb.empty else df_than
+                if than_options.empty: than_options = df_than
+                
+                than_dict = dict(zip(than_options['db_rowid'], than_options['ten_than'].astype(str)))
+                t_db_id = st.selectbox("Chọn Loại Than Xuất Bãi:", options=list(than_dict.keys()), format_func=lambda x: than_dict.get(x))
+                t_id = than_options[than_options['db_rowid']==t_db_id]['id'].values[0]
+                
+                with get_connection() as conn: 
+                    gr_res = conn.cursor().execute("SELECT gia_uu_dai FROM gia_rieng WHERE khach_hang_id=? AND loai_than_id=?", (to_int(khach_id), to_int(t_id))).fetchone()
+                
+                df_tk_filter = df_than[df_than['db_rowid']==t_db_id]
+                gia_goi_y = gr_res[0] if gr_res else (df_tk_filter['gia_mac_dinh'].values[0] if not df_tk_filter.empty else 0)
+                ton_kho_hien_tai = to_float(df_tk_filter['ton_kho'].values[0]) if not df_tk_filter.empty else 0.0
+                
+                st.markdown(f"Trữ lượng bãi thực tế: <b style='color:#2563eb;'>{fmt_vn(ton_kho_hien_tai)} kg</b>", unsafe_allow_html=True)
+                st.markdown("---")
+                st.markdown("#### ⚙️ Khối Lượng & Định Giá")
+                
+                # SỬA TRIỆT ĐỂ KHÔNG BỊ HIỂN THỊ ,00 VÀ CẢNH BÁO VÀNG
+                sl = st.number_input("Khối lượng xuất (kg):", min_value=1, value=1000, step=100, format="%d")
+                dg = st.number_input("Đơn giá chốt bán (đ/kg):", min_value=1, value=int(float(gia_goi_y)), step=500, format="%d")
+                
+                if st.button("➕ NẠP VÀO PHIẾU XUẤT", use_container_width=True):
+                    if any(i['loai_than_id'] == to_int(t_id) for i in st.session_state.cart): st.error("Mặt hàng này đã nằm trong danh sách tạm tính!")
+                    else:
+                        st.session_state.cart.append({'loai_than_id': to_int(t_id), 'ten_than': than_dict.get(t_db_id), 'so_luong': sl, 'don_gia': dg, 'thanh_tien': sl * dg})
+                        st.rerun()
             
             with panel_cart:
                 st.markdown("<div class='panel-summary'>", unsafe_allow_html=True)
