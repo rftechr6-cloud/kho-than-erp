@@ -557,6 +557,7 @@ elif menu == "Lập Đơn & In Phiếu":
                 st.markdown("</div>", unsafe_allow_html=True)
 
 # ==========================================
+# ==========================================
 # PHÂN HỆ 3: GIAO HÀNG & ĐIỀU VẬN TÀI XẾ
 # ==========================================
 elif menu == "Giao Hàng & Vận Tải":
@@ -564,9 +565,13 @@ elif menu == "Giao Hàng & Vận Tải":
     with get_connection() as conn: df_staff = pd.read_sql_query("SELECT rowid as db_rowid, id, ten_nhan_vien FROM nhan_vien", conn.connection)
     
     tab1, tab2 = st.tabs(["📦 Xe Chờ Đi Giao", "🏁 Nghiệm Thu Giao Xong"])
+    
+    # ---------------- TAB 1: XE CHỜ GIAO ----------------
     with tab1:
         with get_connection() as conn: df_cho = pd.read_sql_query("SELECT rowid as db_rowid, id, ma_don_hien_thi, khach_hang_id, trang_thai_giao FROM don_hang WHERE trang_thai_giao = 'Chờ giao hàng'", conn.connection)
-        if df_cho.empty: st.success("Hiện tại không có đơn xe nào chờ điều phối bãi.")
+        
+        if df_cho.empty: 
+            st.success("Hiện tại không có đơn xe nào chờ điều phối bãi.")
         else:
             for idx, r in df_cho.iterrows():
                 with get_connection() as conn: 
@@ -590,11 +595,15 @@ elif menu == "Giao Hàng & Vận Tải":
                                         c_update.execute("UPDATE don_hang SET trang_thai_giao='Đang giao', nhan_vien_id=? WHERE rowid=?", (to_int(tx_id), to_int(r['db_rowid'])))
                                         c_update.commit()
                                     st.success("Xe đã lăn bánh!"); st.rerun()
-                    with c2: st.button("🗑️ Hủy Đơn", key=f"huy_don_cho_{idx}_{r['db_rowid']}", on_click=cb_huy_don, args=(to_int(r['db_rowid']),))
+                    with c2: 
+                        st.button("🗑️ Hủy Đơn", key=f"huy_don_cho_{idx}_{r['db_rowid']}", on_click=cb_huy_don, args=(to_int(r['db_rowid']),))
 
+    # ---------------- TAB 2: ĐANG GIAO & NGHIỆM THU ----------------
     with tab2:
         with get_connection() as conn: df_dang = pd.read_sql_query("SELECT rowid as db_rowid, id, ma_don_hien_thi, khach_hang_id, tong_tien FROM don_hang WHERE trang_thai_giao = 'Đang giao'", conn.connection)
-        if df_dang.empty: st.info("Không có xe nào đang di chuyển ngoài đường.")
+        
+        if df_dang.empty: 
+            st.info("Không có xe nào đang di chuyển ngoài đường.")
         else:
             for idx, r in df_dang.iterrows():
                 with get_connection() as conn:
@@ -605,22 +614,43 @@ elif menu == "Giao Hàng & Vận Tải":
                     c1, c2 = st.columns([4, 1])
                     with c1:
                         with st.form(key=f"form_done_gh_{idx}_{r['db_rowid']}"):
-                            st.write(f"Giá trị đơn hàng: <b>{fmt_vn(r['tong_tien'])} đ</b>", unsafe_allow_html=True)
-                            tien_tra_ngay = st.number_input("Cầm tiền mặt / CK thu ngay (đ):", min_value=0, max_value=int(float(r['tong_tien'])), value=int(float(r['tong_tien'])), step=10000, format="%d")
+                            # 1. Ép kiểu an toàn (Bỏ qua lỗi rỗng/chữ để tránh ValueError)
+                            tong_tien_an_toan = int(to_float(r['tong_tien']))
+                            
+                            st.write(f"Giá trị đơn hàng: <b>{fmt_vn(tong_tien_an_toan)} đ</b>", unsafe_allow_html=True)
+                            
+                            # 2. Truyền biến an toàn vào number_input
+                            tien_tra_ngay = st.number_input(
+                                "Cầm tiền mặt / CK thu ngay (đ):", 
+                                min_value=0, 
+                                max_value=tong_tien_an_toan if tong_tien_an_toan > 0 else 1000000000, 
+                                value=tong_tien_an_toan if tong_tien_an_toan > 0 else 0, 
+                                step=10000, 
+                                format="%d"
+                            )
+                            
                             pt_tt = st.selectbox("Cơ chế nhận tiền:", ["Chuyển khoản", "Tiền mặt"])
+                            
+                            # 3. Lệnh xử lý khi xác nhận thu tiền
                             if st.form_submit_button("Xác Nhận Nghiệm Thu Hạ Hàng", type="primary"):
-                                tien_con_no_lai = to_float(r['tong_tien']) - tien_tra_ngay; is_paid = 1 if tien_con_no_lai <= 0 else 0
+                                tien_con_no_lai = to_float(r['tong_tien']) - tien_tra_ngay
+                                is_paid = 1 if tien_con_no_lai <= 0 else 0
                                 ht_luu = pt_tt if is_paid else f"Thanh toán 1 phần ({pt_tt}) - Công nợ bãi"
                                 ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                                
                                 with get_connection() as c_update:
                                     cur = c_update.cursor()
                                     cur.execute("UPDATE don_hang SET trang_thai_giao='Đã hoàn thành', da_thanh_toan=?, hinh_thuc_thanh_toan=?, tien_da_tra=?, tien_con_no=? WHERE rowid=?", (is_paid, ht_luu, tien_tra_ngay, tien_con_no_lai, to_int(r['db_rowid'])))
+                                    
                                     if tien_tra_ngay > 0: 
                                         lsid = get_next_id('lich_su_thanh_toan', cur)
                                         cur.execute("INSERT INTO lich_su_thanh_toan (id, don_hang_id, so_tien_tra, hinh_thuc, ngay_tra, ghi_chu, nguoi_tao) VALUES (?,?,?,?,?,?,?)", (lsid, to_int(r['id']), tien_tra_ngay, pt_tt, ts, "Thu tiền hạ hàng", st.session_state.current_user))
+                                    
                                     c_update.commit()
                                 st.success("Nghiệm thu đơn hoàn tất!"); st.rerun()
-                    with c2: st.button("🗑️ Hủy Đơn", key=f"huy_don_dang_{idx}_{r['db_rowid']}", on_click=cb_huy_don, args=(to_int(r['db_rowid']),))
+                    
+                    with c2: 
+                        st.button("🗑️ Hủy Đơn", key=f"huy_don_dang_{idx}_{r['db_rowid']}", on_click=cb_huy_don, args=(to_int(r['db_rowid']),))
 
 # ==========================================
 # PHÂN HỆ 4: SỔ QUẢN LÝ NỢ
