@@ -884,40 +884,120 @@ elif menu == "Cài Đặt Hệ Thống":
                 with get_connection() as conn: conn.execute("UPDATE cau_hinh_in SET ten_cua_hang=?, so_dien_thoai=?, thong_tin_ngan_hang=?, kho_giay_mac_dinh=? WHERE id=1", (ten_ch, sdt_ch, stk_ch, kho_giay)); conn.commit()
                 st.success("Đồng bộ tham số in ấn thành công!"); st.rerun()
 
- # ------------------ 6. ADMIN (PHÂN QUYỀN VÀ XÓA TÀI KHOẢN) ------------------
-    elif tab_sys == "6. Quản Lý Tài Khoản (Admin)":
-        with get_connection() as conn: df_users = pd.read_sql_query("SELECT rowid as db_rowid, id, username, role, status FROM users WHERE username != 'admin'", conn.connection)
-        
-        t_u1, t_u2 = st.tabs(["🟡 Phê Duyệt Tài Khoản Mới", "🟢 Cấp Quyền & Xóa Tài Khoản Cũ"])
-        with t_u1:
-            if not df_users.empty:
-                for idx, r in df_users[df_users['status'] == 'Chờ duyệt'].iterrows():
-                    with st.form(f"f_approve_{r['db_rowid']}"):
-                        st.write(f"Tài khoản đăng ký: **{r['username']}**")
-                        role_assign = st.selectbox("Gắn chức vụ:", options=["ketoan", "laixe"], format_func=lambda x: "Kế toán / Sale" if x == "ketoan" else "Tài xế lái xe")
+# ------------------ 6. ADMIN (PHÂN QUYỀN VÀ XÓA TÀI KHOẢN) ------------------
+
+elif tab_sys == "6. Quản Lý Tài Khoản (Admin)":
+
+    ROLE_NAME = {
+        "admin": "👑 Quản trị hệ thống",
+        "quanly": "🟢 Quản lý bãi",
+        "ketoan": "🟡 Kế toán / Sale",
+        "laixe": "🚛 Tài xế"
+    }
+
+    with get_connection() as conn:
+        df_users = pd.read_sql_query(
+            "SELECT rowid as db_rowid, id, username, role, status FROM users WHERE username != 'admin'",
+            conn.connection
+        )
+
+    t_u1, t_u2 = st.tabs([
+        "🟡 Phê Duyệt Tài Khoản Mới",
+        "🟢 Cấp Quyền & Xóa Tài Khoản"
+    ])
+
+    # ================= PHÊ DUYỆT =================
+    with t_u1:
+
+        if not df_users.empty:
+
+            for idx, r in df_users[df_users["status"] == "Chờ duyệt"].iterrows():
+
+                with st.form(f"approve_{r['db_rowid']}"):
+
+                    st.write(f"**Tài khoản:** {r['username']}")
+
+                    role_assign = st.selectbox(
+                        "Chọn chức vụ",
+                        options=["quanly", "ketoan", "laixe"],
+                        format_func=lambda x: ROLE_NAME[x]
+                    )
+
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+
+                        if st.form_submit_button("✅ Cấp quyền"):
+
+                            with get_connection() as c:
+                                c.execute(
+                                    "UPDATE users SET status='Đã duyệt', role=? WHERE rowid=?",
+                                    (role_assign, r["db_rowid"])
+                                )
+                                c.commit()
+
+                            st.success("Đã cấp quyền.")
+                            st.rerun()
+
+                    with c2:
+
+                        if st.form_submit_button("❌ Từ chối & Xóa"):
+
+                            cb_xoa_user(r["db_rowid"])
+                            st.rerun()
+
+    # ================= QUẢN LÝ =================
+    with t_u2:
+
+        st.info("💡 Admin có thể thay đổi chức vụ hoặc xóa tài khoản nhân viên.")
+
+        if not df_users.empty:
+
+            for idx, r in df_users[df_users["status"] == "Đã duyệt"].iterrows():
+
+                with st.expander(
+                    f"👤 {r['username']} ({ROLE_NAME.get(r['role'], r['role'])})"
+                ):
+
+                    with st.form(f"edit_user_{r['db_rowid']}"):
+
+                        role_list = ["quanly", "ketoan", "laixe"]
+
+                        current_index = (
+                            role_list.index(r["role"])
+                            if r["role"] in role_list
+                            else 0
+                        )
+
+                        new_role = st.selectbox(
+                            "Đổi chức vụ",
+                            options=role_list,
+                            index=current_index,
+                            format_func=lambda x: ROLE_NAME[x]
+                        )
+
                         c1, c2 = st.columns(2)
-                        with c1: 
-                            if st.form_submit_button("✅ Cấp quyền"):
-                                with get_connection() as c: c.execute("UPDATE users SET status='Đã duyệt', role=? WHERE rowid=?", (role_assign, r['db_rowid'])); c.commit()
+
+                        with c1:
+
+                            if st.form_submit_button("💾 Lưu chức vụ"):
+
+                                with get_connection() as c:
+                                    c.execute(
+                                        "UPDATE users SET role=? WHERE rowid=?",
+                                        (new_role, r["db_rowid"])
+                                    )
+                                    c.commit()
+
+                                st.success("Đã cập nhật chức vụ.")
                                 st.rerun()
+
                         with c2:
-                            if st.form_submit_button("❌ Từ chối & Xóa"):
-                                cb_xoa_user(r['db_rowid']); st.rerun()
-        with t_u2:
-            st.info("💡 Bạn có thể thay đổi chức vụ hoặc Xóa vĩnh viễn tài khoản của nhân viên đã nghỉ việc tại đây.")
-            if not df_users.empty:
-                for idx, r in df_users[df_users['status'] == 'Đã duyệt'].iterrows():
-                    with st.expander(f"👤 {r['username']} (Quyền: {'Kế toán' if r['role'] == 'ketoan' else 'Lái xe'})"):
-                        with st.form(f"f_edit_u_{r['db_rowid']}"):
-                            new_role = st.selectbox("Đổi chức vụ:", options=["ketoan", "laixe"], index=0 if r['role'] == 'ketoan' else 1, format_func=lambda x: "Kế toán / Sale" if x == "ketoan" else "Tài xế lái xe")
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                if st.form_submit_button("💾 Lưu Quyền Mới"):
-                                    with get_connection() as c: c.execute("UPDATE users SET role=? WHERE rowid=?", (new_role, r['db_rowid'])); c.commit()
-                                    st.success("Đã đổi quyền thành công!"); st.rerun()
-                            with c2:
-                                if st.form_submit_button("🗑️ Xóa vĩnh viễn (Nghỉ việc)"):
-                                    cb_xoa_user(r['db_rowid']); st.rerun()
+
+                            if st.form_submit_button("🗑️ Xóa vĩnh viễn"):
+
+                                cb_xoa_user(r["db_rowid"])
+                                st.rerun()
 
     # ------------------ 7. SYSTEM LOG ------------------
     elif tab_sys == "7. System Log (Theo dõi lỗi)":
