@@ -288,7 +288,10 @@ ROLE_ICONS = {
 
 current_role = st.session_state.user_role
 if current_role not in ROLE_MENUS: current_role = "laixe" # Fallback an toàn
-
+# --- THÊM ĐOẠN KHỞI TẠO NÀY NGAY PHÍA DƯỚI ---
+is_admin = (current_role == 'admin')
+is_manager = (current_role == 'manager')
+can_edit = is_admin # Chỉ admin mới được sửa/xóa, manager chỉ xem
 with st.sidebar:
     st.markdown(f"### 🪨 TRẠM VẬN HÀNH\n• Người dùng: **{st.session_state.current_user}**\n• Quyền hạn: **{current_role.upper()}**")
     if st.button("🚪 Đăng Xuất"): st.session_state.clear(); st.rerun()
