@@ -97,7 +97,7 @@ def cb_huy_don(db_rowid):
 # ==========================================
 # 1. THIẾT KẾ ĐỒ HỌA & STYLE DOANH NGHIỆP
 # ==========================================
-st.set_page_config(page_title="ERP Kho Than V10.0", page_icon="🪨", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Hệ thống quản lý kho than ", page_icon="🪨", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -245,7 +245,7 @@ if not st.session_state.logged_in:
         with t_log:
             with st.form("login_form"):
                 user = st.text_input("Tài khoản:"); pwd = st.text_input("Mật khẩu:", type="password")
-                if st.form_submit_button("Đăng Nhập Nhận Ca", type="primary"):
+                if st.form_submit_button("Đăng Nhập ", type="primary"):
                     with get_connection() as conn:
                         res = conn.cursor().execute("SELECT role, status FROM users WHERE username=? AND password=?", (user, hash_password(pwd))).fetchone()
                         if res:
@@ -325,7 +325,7 @@ if menu == "Thống Kê (HQ)":
     with c4: st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>🛑 Tổng Công Nợ</div><div class='kpi-value text-red'>{fmt_vn(debt_rev)} đ</div></div>", unsafe_allow_html=True)
 
     # ------------------ CẢNH BÁO TIẾN ĐỘ GIAO HÀNG CHUẨN 2 GIỜ (MỚI) ------------------
-    st.markdown("### 🕒 Giám Sát Tiến Độ Giao Hàng Lâm Sàng")
+    st.markdown("### 🕒 Giám Sát Tiến Độ Giao Hàng")
     if not df_group.empty:
         df_cho = df_group[df_group['trang_thai_giao'] != 'Đã hoàn thành'].copy()
         if df_cho.empty: st.success("✅ Tuyệt vời! Không có lệnh xuất kho nào bị tồn đọng quá thời gian.")
@@ -457,7 +457,7 @@ elif menu == "Lập Đơn & In Phiếu":
             panel_input, panel_cart = st.columns([2, 3])
             
             with panel_input:
-                st.markdown("#### 👤 Đối Tác & Chủng Loại")
+                st.markdown("#### 👤 Lập hóa đơn ")
                 khach_dict = dict(zip(df_khach['db_rowid'], "[" + df_khach['ma_khach_hang'].astype(str) + "] " + df_khach['ten_khach'].astype(str)))
                 khach_db_id = st.selectbox("Chọn Khách Hàng:", options=list(khach_dict.keys()), format_func=lambda x: khach_dict.get(x))
                 khach_id = df_khach[df_khach['db_rowid']==khach_db_id]['id'].values[0]
