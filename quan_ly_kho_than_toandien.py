@@ -283,6 +283,7 @@ with st.sidebar:
     menu = option_menu("CHỨC NĂNG CỐT LÕI", ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Giao Hàng & Vận Tải", "Sổ Quản Lý Nợ", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"], icons=['bar-chart-fill', 'receipt-cutoff', 'truck', 'wallet-fill', 'clock-history', 'gear-fill'], menu_icon="boxes", default_index=0)
 
 # ==========================================
+# ==========================================
 # PHÂN HỆ 1: THỐNG KÊ
 # ==========================================
 if menu == "Thống Kê (HQ)":
@@ -294,19 +295,33 @@ if menu == "Thống Kê (HQ)":
         df_group = pd.read_sql_query('''SELECT dh.id as don_id, dh.ma_don_hien_thi, dh.thoi_gian_tao, dh.trang_thai_giao, dh.giao_gap, dh.tong_tien, dh.tien_con_no, dh.nguoi_tao, kh.ma_khach_hang, kh.ten_khach, nv.ten_nhan_vien FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id ORDER BY dh.id DESC''', conn.connection)
         df_kho_status = pd.read_sql_query("SELECT ten_than, ton_kho FROM loai_than", conn.connection)
 
+    # --- ÉP KIỂU DỮ LIỆU ĐỂ TRÁNH LỖI SUM() CHUỖI ---
     if not df_flat.empty:
+        # Ép kiểu các cột tính toán về số
+        df_flat['don_gia'] = pd.to_numeric(df_flat['don_gia'], errors='coerce').fillna(0)
+        df_flat['gia_nhap_mac_dinh'] = pd.to_numeric(df_flat['gia_nhap_mac_dinh'], errors='coerce').fillna(0)
+        df_flat['so_luong'] = pd.to_numeric(df_flat['so_luong'], errors='coerce').fillna(0)
+        df_flat['thanh_tien'] = pd.to_numeric(df_flat['thanh_tien'], errors='coerce').fillna(0)
+        
         df_flat['Date'] = pd.to_datetime(df_flat['thoi_gian_tao'])
         df_flat['loi_nhuan'] = (df_flat['don_gia'] - df_flat['gia_nhap_mac_dinh']) * df_flat['so_luong']
+        
         if time_filter == "Hôm nay": df_flat = df_flat[df_flat['Date'].dt.date == now_dt.date()]
         elif time_filter == "Tuần này": df_flat = df_flat[df_flat['Date'].dt.date >= (now_dt - timedelta(days=now_dt.weekday())).date()]
         elif time_filter == "Tháng này": df_flat = df_flat[(df_flat['Date'].dt.month == now_dt.month) & (df_flat['Date'].dt.year == now_dt.year)]
         
     if not df_group.empty:
+        # Ép kiểu các cột tiền tệ về số
+        df_group['tong_tien'] = pd.to_numeric(df_group['tong_tien'], errors='coerce').fillna(0)
+        df_group['tien_con_no'] = pd.to_numeric(df_group['tien_con_no'], errors='coerce').fillna(0)
+        
         df_group['Date'] = pd.to_datetime(df_group['thoi_gian_tao'])
+        
         if time_filter == "Hôm nay": df_group = df_group[df_group['Date'].dt.date == now_dt.date()]
         elif time_filter == "Tuần này": df_group = df_group[df_group['Date'].dt.date >= (now_dt - timedelta(days=now_dt.weekday())).date()]
         elif time_filter == "Tháng này": df_group = df_group[(df_group['Date'].dt.month == now_dt.month) & (df_group['Date'].dt.year == now_dt.year)]
 
+    # Bây giờ lệnh .sum() sẽ chạy cực kỳ an toàn
     total_rev = df_group['tong_tien'].sum() if not df_group.empty else 0
     debt_df = df_group[df_group['trang_thai_giao'] == 'Đã hoàn thành'] if not df_group.empty else pd.DataFrame()
     debt_rev = debt_df['tien_con_no'].sum() if not debt_df.empty else 0
