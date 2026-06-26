@@ -828,18 +828,19 @@ elif menu == "Cài Đặt Hệ Thống":
             
         st.markdown("#### 📋 Quản Lý Hồ Sơ Đối Tác")
         if not df_k.empty: 
-            # Hiển thị gộp chung lat, lon thành chuỗi cho dễ nhìn
-            df_k['toado_str'] = df_k.apply(lambda r: f"{r['lat']}, {r['lon']}" if r['lat'] and r['lat'] != 0.0 else "", axis=1)
-            
-            c1, c2, c3, c4, c5 = st.columns([1.5, 3, 2, 4, 1.5])
+            # Nới rộng cột thao tác lên 2.5 để có chỗ cho nút
+            c1, c2, c3, c4, c5 = st.columns([1.5, 3, 2, 3.5, 2])
             c1.markdown("<b>Mã KH</b>", unsafe_allow_html=True); c2.markdown("<b>Tên Khách</b>", unsafe_allow_html=True)
             c3.markdown("<b>SĐT</b>", unsafe_allow_html=True); c4.markdown("<b>Khu Vực</b>", unsafe_allow_html=True)
             if can_edit: c5.markdown("<b>Thao tác</b>", unsafe_allow_html=True)
             
             for idx, r in df_k.iterrows():
                 with st.container():
-                    if can_edit: cc1, cc2, cc3, cc4, cc5, cc6 = st.columns([1.5, 3, 2, 4, 0.75, 0.75])
-                    else: cc1, cc2, cc3, cc4 = st.columns([1.5, 3, 2, 4])
+                    if can_edit:
+                        # Tỷ lệ: Mã(1.5), Tên(3), SĐT(2), Khu vực(3.5), Thao tác(2)
+                        cc1, cc2, cc3, cc4, cc5 = st.columns([1.5, 3, 2, 3.5, 2])
+                    else:
+                        cc1, cc2, cc3, cc4 = st.columns([1.5, 3, 2, 3.5])
                         
                     cc1.markdown(f"<div class='list-row'>{r['ma_khach_hang']}</div>", unsafe_allow_html=True)
                     cc2.markdown(f"<div class='list-row'>{r['ten_khach']}</div>", unsafe_allow_html=True)
@@ -847,21 +848,21 @@ elif menu == "Cài Đặt Hệ Thống":
                     cc4.markdown(f"<div class='list-row'>{r['khu_vuc']}</div>", unsafe_allow_html=True)
                     
                     if can_edit:
-                        with cc5: edit_exp = st.expander("✏️")
-                        with cc6: 
+                        with cc5:
+                            # SỬ DỤNG POPOVER THAY VÌ EXPANDER ĐỂ HIỂN THỊ ĐẸP HƠN
+                            with st.popover("✏️ Sửa"):
+                                with st.form(f"f_edit_kh_{r['db_rowid']}"):
+                                    st.subheader("Cập nhật thông tin")
+                                    ekn = st.text_input("Tên đối tác:", value=r['ten_khach'])
+                                    ekp = st.text_input("Liên hệ SĐT:", value=r['sdt'])
+                                    ekk = st.text_input("Tuyến đường:", value=r['khu_vuc'])
+                                    ek_toado = st.text_input("Tọa độ (Lat, Lon):", value=f"{r['lat']}, {r['lon']}")
+                                    if st.form_submit_button("Lưu thay đổi"):
+                                        lat, lon = parse_coords(ek_toado)
+                                        with get_connection() as conn: 
+                                            conn.execute("UPDATE khach_hang SET ten_khach=?, sdt=?, khu_vuc=?, lat=?, lon=? WHERE rowid=?", (ekn.strip(), ekp, ekk, lat, lon, r['db_rowid'])); conn.commit()
+                                        st.rerun()
                             if st.button("❌", key=f"del_kh_{r['db_rowid']}"): cb_xoa_khach(r['db_rowid']); st.rerun()
-                        
-                        with edit_exp:
-                            with st.form(f"f_edit_kh_{r['db_rowid']}"):
-                                ekn = st.text_input("Tên đối tác:", value=r['ten_khach'])
-                                ekp = st.text_input("Liên hệ SĐT:", value=r['sdt'])
-                                ekk = st.text_input("Tuyến đường / Khu vực:", value=r['khu_vuc'])
-                                ek_toado = st.text_input("Tọa độ bản đồ (Lat, Lon):", value=r['toado_str'])
-                                if st.form_submit_button("Lưu thay đổi"):
-                                    lat, lon = parse_coords(ek_toado)
-                                    with get_connection() as conn: 
-                                        conn.execute("UPDATE khach_hang SET ten_khach=?, sdt=?, khu_vuc=?, lat=?, lon=? WHERE rowid=?", (ekn.strip(), ekp, ekk, lat, lon, r['db_rowid'])); conn.commit()
-                                    st.rerun()
 
     # ------------------ 3. TÀI XẾ ------------------
     elif tab_sys == "3. Quản Lý Tài Xế":
