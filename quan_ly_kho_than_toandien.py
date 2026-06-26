@@ -452,11 +452,11 @@ elif menu == "Lập Đơn & In Phiếu":
         if df_khach.empty or df_than.empty: st.warning("Vui lòng khởi tạo Danh mục đối tác và Chủng loại than trước.")
         else:
             # GIAO DIỆN CHIA KHUNG 2 CỘT HIỆN ĐẠI (ĐÃ CẢI TIẾN)
+            # GIAO DIỆN CHIA KHUNG 2 CỘT HIỆN ĐẠI (ĐÃ CẢI TIẾN)
             panel_input, panel_cart = st.columns([2, 3])
             
-            with panel_summary:
-                with panel_summary:
-                    st.markdown("#### 👤 Đối Tác & Chủng Loại")
+            with panel_input:
+                st.markdown("#### 👤 Đối Tác & Chủng Loại")
                     khach_dict = dict(zip(df_khach['db_rowid'], "[" + df_khach['ma_khach_hang'].astype(str) + "] " + df_khach['ten_khach'].astype(str)))
                     khach_db_id = st.selectbox("Chọn Khách Hàng:", options=list(khach_dict.keys()), format_func=lambda x: khach_dict.get(x))
                     khach_id = df_khach[df_khach['db_rowid']==khach_db_id]['id'].values[0]
