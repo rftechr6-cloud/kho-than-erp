@@ -747,7 +747,9 @@ elif menu == "Sổ Quản Lý Nợ":
             info_no = df_no[df_no['id'] == id_don_no].iloc[0] if not df_no[df_no['id'] == id_don_no].empty else None
             
             if info_no is not None:
-                tien_thu = st.number_input("Số tiền thu (đ):", min_value=1.0, max_value=float(info_no['CÒN NỢ']), value=float(info_no['CÒN NỢ']), step=10000.0, format="%d")
+                # Ép toàn bộ tham số về int để chặn cảnh báo màu vàng
+                max_no = int(float(info_no['CÒN NỢ']))
+                tien_thu = st.number_input("Số tiền thu (đ):", min_value=1, max_value=max_no, value=max_no, step=10000, format="%d")
                 ht_thu = st.selectbox("Hình thức:", ["Chuyển khoản", "Tiền mặt"])
                 
                 if st.form_submit_button("Xác Nhận Khấu Trừ Nợ", type="primary"):
