@@ -410,7 +410,11 @@ if menu == "Thống Kê (HQ)":
             st.plotly_chart(fig_map, use_container_width=True)
             st.caption("💡 Mẹo: Những vòng tròn càng to thể hiện sản lượng tiêu thụ khu đó càng lớn.")
         else: st.info("📌 Chưa có khách hàng nào được gắn tọa độ thực tế trên Google Maps. Hãy vào 'Cài Đặt -> Quản Lý Khách Hàng' để điền tọa độ nhé!")
-
+     st.markdown("### 📊 Chi Tiết Các Mảng Thống Kê Phân Bổ")
+    if not df_flat.empty:
+        ch1, ch2 = st.columns(2) 
+        with ch1: st.plotly_chart(px.pie(df_flat.groupby('ten_than')['so_luong'].sum().reset_index(), values='so_luong', names='ten_than', hole=0.4, title="Tỷ trọng than xuất kho"), use_container_width=True)
+        with ch2: st.plotly_chart(px.pie(df_flat.groupby('ten_khach')['loi_nhuan'].sum().reset_index(), values='loi_nhuan', names='ten_khach', hole=0.4, title="Lợi nhuận theo khách hàng"), use_container_width=True)
     if auto_refresh: time.sleep(30); st.rerun()
 
 # ==========================================
