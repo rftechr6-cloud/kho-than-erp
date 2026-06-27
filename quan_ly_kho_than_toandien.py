@@ -140,6 +140,17 @@ def get_connection():
         def connection(self): return self.c
     try: yield ConnectionWrapper(conn)
     finally: conn.close()
+def get_next_id(table, cursor):
+    try:
+        cursor.execute(f"SELECT MAX(id) FROM {table}")
+        val = cursor.fetchone()[0]
+        return 1 if pd.isna(val) or val is None or str(val).strip() == '' else to_int(val) + 1
+    except: return 1
+
+def sinh_ma_don_hang_theo_ngay(date_str):
+    with get_connection() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM don_hang WHERE ngay_ban=?", (date_str,)).fetchone()[0]
+        return f"{date_str.replace('-', '')}-{count + 1:03d}"
 
 def init_database():
     with get_connection() as conn:
