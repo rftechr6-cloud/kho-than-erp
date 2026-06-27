@@ -398,7 +398,41 @@ if menu == "Thống Kê (HQ)":
                         <small>• Giờ đặt: <b style='color:#000'>{row_time.strftime('%H:%M %d/%m')}</b> | Hiện tại: <b style='color:#000'>{current_time.strftime('%H:%M')}</b></small><br>
                         <small>• Tài xế: {tx_name} | Đối tác: {r['ten_khach']} | Nhân viên: {r['nguoi_tao']}</small></div>""", unsafe_allow_html=True)
                 except: continue
-
+    st.markdown("---")
+    st.markdown("### 🤖 Trợ Lý AI: Phân Tích Hành Vi & Gợi Ý Chiến Lược")
+    if not df_flat.empty:
+        df_flat['ngay_ban_dt'] = pd.to_datetime(df_flat['ngay_ban'])
+        top_10 = df_flat.groupby('ten_khach').agg({'so_luong':'sum', 'thanh_tien':'sum'}).reset_index().sort_values(by='so_luong', ascending=False).head(10)
+        df_ai_sort = df_flat.sort_values(by=['ten_khach', 'ngay_ban_dt'])
+        df_ai_sort['ngay_ban_truoc'] = df_ai_sort.groupby('ten_khach')['ngay_ban_dt'].shift(1)
+        df_ai_sort['khoang_cach_ngay'] = (df_ai_sort['ngay_ban_dt'] - df_ai_sort['ngay_ban_truoc']).dt.days
+        
+        now_dt_flat = now_dt.replace(tzinfo=None)
+        ai_khach = df_ai_sort.groupby('ten_khach').agg(ngay_mua_cuoi=('ngay_ban_dt', 'max'), chu_ky_mua=('khoang_cach_ngay', 'mean')).reset_index()
+        ai_khach['ngay_chua_mua'] = (now_dt_flat - ai_khach['ngay_mua_cuoi']).dt.days
+        khach_can_cham_soc = ai_khach[(ai_khach['chu_ky_mua'] > 0) & (ai_khach['ngay_chua_mua'] > ai_khach['chu_ky_mua'] + 5)].copy()
+        
+        date_30 = now_dt_flat - timedelta(days=30)
+        date_60 = now_dt_flat - timedelta(days=60)
+        than_30d = df_flat[df_flat['ngay_ban_dt'] >= date_30].groupby('ten_than')['so_luong'].sum().reset_index().rename(columns={'so_luong':'sl_30d'})
+        than_60d = df_flat[(df_flat['ngay_ban_dt'] >= date_60) & (df_flat['ngay_ban_dt'] < date_30)].groupby('ten_than')['so_luong'].sum().reset_index().rename(columns={'so_luong':'sl_60d'})
+        trend_than = pd.merge(than_30d, than_60d, on='ten_than', how='outer').fillna(0)
+        trend_than['tang_truong'] = trend_than['sl_30d'] - trend_than['sl_60d']
+        
+        t_ai1, t_ai2, t_ai3 = st.tabs(["🏆 1. Top 10 Đối Tác VIP", "⚠️ 2. Cảnh Báo Khách Rời Bỏ", "📊 3. Dự Báo Nhập Kho"])
+        with t_ai1: 
+            st.dataframe(top_10.rename(columns={'ten_khach':'Tên Đối Tác', 'so_luong':'Sản Lượng (kg)', 'thanh_tien':'Doanh Thu (đ)'}).style.format({
+                'Sản Lượng (kg)': lambda x: fmt_vn(x), 'Doanh Thu (đ)': lambda x: fmt_vn(x)
+            }), use_container_width=True, hide_index=True)
+        with t_ai2:
+            if khach_can_cham_soc.empty: st.success("✅ Toàn bộ đối tác đang quay vòng đặt hàng ổn định.")
+            else:
+                for _, r in khach_can_cham_soc.iterrows():
+                    st.markdown(f"<div class='ai-card ai-warn'>⚠️ Khách hàng <b>{r['ten_khach']}</b> thường <b>{r['chu_ky_mua']:.0f} ngày đặt 1 lần</b>, hiện đã quá hạn bãi xe <b>{r['ngay_chua_mua']} ngày</b>. Cần liên hệ chăm sóc gấp!</div>", unsafe_allow_html=True)
+        with t_ai3:
+            for _, r in trend_than.iterrows():
+                if r['tang_truong'] > 0: st.markdown(f"<div class='ai-card'>📈 Chủng loại <b>{r['ten_than']}</b> sức mua TĂNG MẠNH <b>+{fmt_vn(r['tang_truong'])} kg</b>. Đề xuất chuẩn bị nhập thêm bãi.</div>", unsafe_allow_html=True)
+                elif r['tang_truong'] < 0: st.markdown(f"<div class='ai-card ai-danger'>📉 Chủng loại <b>{r['ten_than']}</b> sức mua GIẢM <b>{fmt_vn(r['tang_truong'])} kg</b>. Xem xét hạn chế nhập bến.</div>", unsafe_allow_html=True)
     st.markdown("---")
     st.markdown("### 🗺️ Bản Đồ Phân Bổ Tiêu Thụ (Chi Tiết)")
     if not df_flat.empty and 'lat' in df_flat.columns:
