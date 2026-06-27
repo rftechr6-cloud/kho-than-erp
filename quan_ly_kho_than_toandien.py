@@ -11,7 +11,6 @@ import json
 import requests
 from contextlib import contextmanager
 import threading
-import sys
 from streamlit_option_menu import option_menu
 import streamlit.components.v1 as components
 import time
@@ -26,9 +25,6 @@ MAP_COORDS = {
     "Hải Phòng": {"lat": 20.8449, "lon": 106.6881}, "Quảng Ninh": {"lat": 20.8561, "lon": 107.1361},
     "Khác": {"lat": 21.0, "lon": 105.8}
 }
-
-now_dt = datetime.now(timezone.utc) + timedelta(hours=7)
-today_str = now_dt.strftime('%Y-%m-%d')
 
 # ==========================================
 # CÁC HÀM XỬ LÝ ĐỊNH DẠNG & BẢO MẬT
@@ -57,6 +53,7 @@ def parse_coords(coord_str):
         return float(parts[0]), float(parts[1])
     except: return 0.0, 0.0
 
+# --- HỆ THỐNG GHI LOG ---
 if 'sys_log' not in st.session_state: st.session_state.sys_log = []
 
 def write_log(action, status, detail=""):
@@ -66,8 +63,86 @@ def write_log(action, status, detail=""):
     st.session_state.sys_log.insert(0, log_msg)
     if len(st.session_state.sys_log) > 50: st.session_state.sys_log.pop()
 
+# --- TRẠNG THÁI CHỈNH SỬA ---
+if 'edit_t_id' not in st.session_state: st.session_state.edit_t_id = None
+if 'edit_kh_id' not in st.session_state: st.session_state.edit_kh_id = None
+if 'edit_tx_id' not in st.session_state: st.session_state.edit_tx_id = None
+if 'edit_u_id' not in st.session_state: st.session_state.edit_u_id = None
+
 # ==========================================
-# QUẢN LÝ DATABASE
+# GIAO TIẾP BOT ZALO OA API
+# ==========================================
+def send_zalo_notify(msg):
+    """Hàm gửi tin nhắn Zalo tự động qua Zalo OA API"""
+    try:
+        with get_connection() as conn:
+            conf = conn.cursor().execute("SELECT zalo_token, zalo_id, zalo_active FROM cau_hinh_in WHERE id=1").fetchone()
+            if conf and to_int(conf[2]) == 1 and conf[0] and conf[1]:
+                url = "https://openapi.zalo.me/v3.0/oa/message/cs"
+                headers = {"access_token": conf[0], "Content-Type": "application/json"}
+                payload = {"recipient": {"user_id": conf[1]}, "message": {"text": msg}}
+                requests.post(url, headers=headers, json=payload, timeout=5)
+    except Exception as e:
+        write_log("Zalo Bot", "ERROR", str(e))
+
+# ==========================================
+# CÁC CALLBACKS XỬ LÝ DỮ LIỆU
+# ==========================================
+def cb_xoa_than(item_id):
+    with get_connection() as c: c.execute("DELETE FROM loai_than WHERE id=?", (item_id,)); c.commit()
+    write_log("Xóa loại than", "SUCCESS", f"ID: {item_id}")
+
+def cb_xoa_khach(item_id):
+    with get_connection() as c: c.execute("DELETE FROM khach_hang WHERE id=?", (item_id,)); c.commit()
+    write_log("Xóa khách hàng", "SUCCESS", f"ID: {item_id}")
+
+def cb_xoa_taixe(item_id):
+    with get_connection() as c: c.execute("DELETE FROM nhan_vien WHERE id=?", (item_id,)); c.commit()
+    write_log("Xóa tài xế", "SUCCESS", f"ID: {item_id}")
+
+def cb_xoa_user(item_id):
+    with get_connection() as c: c.execute("DELETE FROM users WHERE id=?", (item_id,)); c.commit()
+    write_log("Xóa tài khoản", "SUCCESS", f"Đã xóa vĩnh viễn user có ID: {item_id}")
+
+def cb_huy_don(don_id):
+    try:
+        with get_connection() as c:
+            res = c.execute("SELECT id FROM don_hang WHERE id=?", (don_id,)).fetchone()
+            if res:
+                don_id = to_int(res[0])
+                chi_tiet = pd.read_sql_query(f"SELECT loai_than_id, so_luong FROM chi_tiet_don_hang WHERE don_hang_id={don_id}", c.connection)
+                for _, row in chi_tiet.iterrows():
+                    c.execute("UPDATE loai_than SET ton_kho = ton_kho + ? WHERE id = ?", (to_float(row['so_luong']), to_int(row['loai_than_id'])))
+                c.execute("DELETE FROM chi_tiet_don_hang WHERE don_hang_id=?", (don_id,))
+                c.execute("DELETE FROM lich_su_thanh_toan WHERE don_hang_id=?", (don_id,))
+            c.execute("DELETE FROM don_hang WHERE id=?", (don_id,))
+            c.commit()
+        write_log("Hủy đơn hàng", "SUCCESS", f"Hủy triệt để đơn mục ID: {don_id}")
+    except Exception as e: write_log("Hủy đơn hàng", "ERROR", str(e))
+
+# ==========================================
+# THIẾT KẾ ĐỒ HỌA
+# ==========================================
+st.set_page_config(page_title="ERP Quản Lý Bãi Than", page_icon="🪨", layout="wide", initial_sidebar_state="expanded")
+st.markdown("""
+    <style>
+        html, body, [data-testid="stAppViewContainer"] { background-color: #f8fafc; font-family: "Inter", -apple-system, sans-serif; }
+        .kpi-card { background: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-top: 4px solid #3b82f6; margin-bottom: 20px; }
+        .kpi-label { font-size: 13px; color: #64748b; font-weight: 600; text-transform: uppercase; margin-bottom: 5px; }
+        .kpi-value { font-size: 26px; color: #0f172a; font-weight: 800; }
+        .border-green { border-top-color: #10b981; } .border-red { border-top-color: #ef4444; } .border-purple { border-top-color: #8b5cf6; }
+        .text-green { color: #10b981; } .text-red { color: #ef4444; } .text-purple { color: #8b5cf6; }
+        .main-header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 24px; border-radius: 12px; color: white; margin-bottom: 25px; }
+        .list-row { padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; align-items: center; display: flex;}
+        div[data-testid="stButton"] button { padding: 4px 12px; font-size: 13px; border-radius: 6px; }
+        .edit-box { background-color: #fffbeb; padding: 20px; border-radius: 8px; border: 1px solid #fde68a; border-left: 5px solid #f59e0b; margin-bottom: 20px;}
+        .log-box { background: #1e293b; color: #10b981; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 12px; height: 300px; overflow-y: scroll; }
+        .danger-zone { background-color: #fff1f2; border: 1px solid #fecdd3; padding: 20px; border-radius: 8px; border-left: 6px solid #e11d48; margin-top: 15px;}
+    </style>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# KHỞI TẠO DỮ LIỆU & ĐỒNG BỘ
 # ==========================================
 try: SHEET_URL = st.secrets["sheet_url"]
 except KeyError: st.error("Chưa cấu hình Két sắt bảo mật."); st.stop()
@@ -84,13 +159,6 @@ def check_and_add_column(cursor, table, col_name, col_def):
     cols = [col[1] for col in cursor.fetchall()]
     if col_name not in cols: cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
 
-def get_next_id(table, cursor):
-    try:
-        cursor.execute(f"SELECT MAX(id) FROM {table}")
-        val = cursor.fetchone()[0]
-        return 1 if pd.isna(val) or val is None or str(val).strip() == '' else to_int(val) + 1
-    except: return 1
-
 @st.cache_resource
 def init_local_db():
     conn = sqlite3.connect("kho_than.db", check_same_thread=False)
@@ -104,6 +172,7 @@ def init_local_db():
             df.to_sql(ws.title, conn, if_exists='replace', index=False)
     conn.execute("DELETE FROM loai_than WHERE id IS NULL OR id = '' OR ten_than IS NULL OR TRIM(ten_than) = ''")
     conn.execute("DELETE FROM khach_hang WHERE id IS NULL OR id = '' OR ten_khach IS NULL OR TRIM(ten_khach) = ''")
+    conn.execute("DELETE FROM nhan_vien WHERE id IS NULL OR id = '' OR ten_nhan_vien IS NULL OR TRIM(ten_nhan_vien) = ''")
     conn.commit()
     return conn
 
@@ -140,6 +209,7 @@ def get_connection():
         def connection(self): return self.c
     try: yield ConnectionWrapper(conn)
     finally: conn.close()
+
 def get_next_id(table, cursor):
     try:
         cursor.execute(f"SELECT MAX(id) FROM {table}")
@@ -179,135 +249,16 @@ def init_database():
         cursor.execute('''CREATE TABLE IF NOT EXISTS lich_su_thanh_toan (id INTEGER PRIMARY KEY, don_hang_id INTEGER, so_tien_tra DOUBLE, hinh_thuc VARCHAR(100), ngay_tra TIMESTAMP, ghi_chu TEXT, nguoi_tao VARCHAR(255))''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS cau_hinh_in (id INTEGER PRIMARY KEY, ten_cua_hang VARCHAR(255), so_dien_thoai VARCHAR(50), thong_tin_ngan_hang TEXT, kho_giay_mac_dinh VARCHAR(100))''')
         
-        check_and_add_column(cursor, 'cau_hinh_in', 'tele_token', 'TEXT')
-        check_and_add_column(cursor, 'cau_hinh_in', 'tele_id', 'TEXT')
-        check_and_add_column(cursor, 'cau_hinh_in', 'tele_active', 'INTEGER DEFAULT 0')
+        check_and_add_column(cursor, 'cau_hinh_in', 'zalo_token', 'TEXT')
+        check_and_add_column(cursor, 'cau_hinh_in', 'zalo_id', 'TEXT')
+        check_and_add_column(cursor, 'cau_hinh_in', 'zalo_active', 'INTEGER DEFAULT 0')
         cursor.execute("INSERT OR IGNORE INTO cau_hinh_in (id, thong_tin_ngan_hang) VALUES (1, 'Chưa cài đặt')")
         
+        # BẢNG MỚI: SỔ QUỸ
         cursor.execute('''CREATE TABLE IF NOT EXISTS so_quy (id INTEGER PRIMARY KEY, ngay DATE, thoi_gian TIMESTAMP, loai_phieu VARCHAR(50), so_tien DOUBLE, hang_muc VARCHAR(255), nguoi_tao VARCHAR(255), ghi_chu TEXT)''')
         conn.commit()
 
 init_database()
-
-# ==========================================
-# LUỒNG CHẠY NGẦM BOT TELEGRAM (POLLING)
-# ==========================================
-TELE_OFFSET = 0
-PENDING_ORDERS = {}
-
-def send_tele_notify(msg):
-    try:
-        with get_connection() as conn:
-            conf = conn.cursor().execute("SELECT tele_token, tele_id, tele_active FROM cau_hinh_in WHERE id=1").fetchone()
-            if conf and to_int(conf[2]) == 1 and conf[0] and conf[1]:
-                requests.post(f"https://api.telegram.org/bot{conf[0]}/sendMessage", json={"chat_id": conf[1], "text": msg}, timeout=5)
-    except: pass
-
-def run_tele_bot():
-    global TELE_OFFSET, PENDING_ORDERS
-    while True:
-        time.sleep(3)
-        try:
-            with get_connection() as conn:
-                conf = conn.cursor().execute("SELECT tele_token, tele_id, tele_active FROM cau_hinh_in WHERE id=1").fetchone()
-            if not conf or to_int(conf[2]) == 0 or not conf[0] or not conf[1]: continue
-            
-            token, admin_id = conf[0].strip(), str(conf[1]).strip()
-            res = requests.get(f"https://api.telegram.org/bot{token}/getUpdates?offset={TELE_OFFSET}&timeout=5", timeout=10).json()
-            if not res.get("ok"): continue
-            
-            for item in res["result"]:
-                TELE_OFFSET = item["update_id"] + 1
-                
-                # --- XỬ LÝ NÚT BẤM (CALLBACK) ---
-                if "callback_query" in item:
-                    cb = item["callback_query"]
-                    chat_id = str(cb["message"]["chat"]["id"])
-                    msg_id = cb["message"]["message_id"]
-                    data = cb["data"]
-                    if chat_id != admin_id: continue
-                    
-                    if data == "confirm_order":
-                        if chat_id in PENDING_ORDERS:
-                            order = PENDING_ORDERS[chat_id]
-                            with get_connection() as conn:
-                                cur = conn.cursor()
-                                ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-                                count = cur.execute("SELECT COUNT(*) FROM don_hang WHERE ngay_ban=?", (today_str,)).fetchone()[0]
-                                ma_don = f"{today_str.replace('-', '')}-{count + 1:03d}"
-                                new_id = get_next_id('don_hang', cur)
-                                
-                                cur.execute('INSERT INTO don_hang (id, ma_don_hien_thi, khach_hang_id, ngay_ban, thoi_gian_tao, trang_thai_giao, ghi_chu, giao_gap, tong_tien, tien_con_no, nguoi_tao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
-                                            (new_id, ma_don, order['khach_id'], today_str, ts, 'Chờ giao hàng', 'Lên đơn tự động từ Telegram', 0, order['tong_tien'], order['tong_tien'], 'Trợ Lý Bot'))
-                                
-                                ct_id = get_next_id('chi_tiet_don_hang', cur)
-                                cur.execute('INSERT INTO chi_tiet_don_hang (id, don_hang_id, loai_than_id, so_luong, don_gia, don_gia_von) VALUES (?, ?, ?, ?, ?, ?)', 
-                                            (ct_id, new_id, order['than_id'], order['sl'], order['dg'], order['gia_von']))
-                                
-                                cur.execute("UPDATE loai_than SET ton_kho = ton_kho - ? WHERE id = ?", (order['sl'], order['than_id']))
-                                conn.commit()
-                            
-                            lat, lon = order['lat'], order['lon']
-                            map_link = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat!=0.0 else "Khách chưa có định vị Maps"
-                            success_msg = f"🎉 ĐÃ LÊN ĐƠN XUẤT BÃI THÀNH CÔNG!\n- Mã hóa đơn: {ma_don}\n- Đối tác: {order['ten_khach']}\n- Số điện thoại: {order['sdt']}\n- Nơi nhận: {order['dia_chi']}\n- Mặt hàng: {order['ten_than']} ( {fmt_vn(order['sl'])} kg)\n- Phải thu: {fmt_vn(order['tong_tien'])} VNĐ\n📍 Bấm vào đây để chỉ đường: {map_link}"
-                            
-                            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={"chat_id": chat_id, "text": success_msg})
-                            requests.post(f"https://api.telegram.org/bot{token}/editMessageReplyMarkup", json={"chat_id": chat_id, "message_id": msg_id, "reply_markup": {}})
-                            del PENDING_ORDERS[chat_id]
-                        else:
-                            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={"chat_id": chat_id, "text": "❌ Phiếu tạo đã hết hạn hoặc đã được xử lý."})
-                            
-                    elif data == "cancel_order":
-                        if chat_id in PENDING_ORDERS: del PENDING_ORDERS[chat_id]
-                        requests.post(f"https://api.telegram.org/bot{token}/editMessageText", json={"chat_id": chat_id, "message_id": msg_id, "text": "❌ Sếp đã HỦY lệnh tạo đơn này."})
-                        
-                # --- XỬ LÝ TIN NHẮN TEXT (TẠO ĐƠN) ---
-                elif "message" in item and "text" in item["message"]:
-                    msg = item["message"]
-                    chat_id = str(msg["chat"]["id"])
-                    text = msg["text"].strip()
-                    if chat_id != admin_id: continue
-                    
-                    if text.lower().startswith("/taodon"):
-                        parts = text[7:].split("/")
-                        if len(parts) == 4:
-                            k_name, t_name, sl_str, dg_str = [p.strip() for p in parts]
-                            sl = to_float(sl_str); dg = to_float(dg_str)
-                            
-                            with get_connection() as conn:
-                                cur = conn.cursor()
-                                k_res = cur.execute("SELECT id, ten_khach, sdt, dia_chi, lat, lon FROM khach_hang WHERE LOWER(ten_khach) LIKE LOWER(?)", (f"%{k_name}%",)).fetchone()
-                                t_res = cur.execute("SELECT id, ten_than, gia_nhap_mac_dinh FROM loai_than WHERE LOWER(ten_than) LIKE LOWER(?)", (f"%{t_name}%",)).fetchone()
-                                
-                            if k_res and t_res:
-                                tong_tien = sl * dg
-                                PENDING_ORDERS[chat_id] = {
-                                    'khach_id': k_res[0], 'ten_khach': k_res[1], 'sdt': k_res[2], 'dia_chi': k_res[3], 'lat': k_res[4], 'lon': k_res[5],
-                                    'than_id': t_res[0], 'ten_than': t_res[1], 'sl': sl, 'dg': dg, 'tong_tien': tong_tien, 'gia_von': t_res[2]
-                                }
-                                
-                                reply = f"🛒 XÁC NHẬN LÊN ĐƠN DỰ KIẾN:\n- Đối Tác: {k_res[1]}\n- Trữ lượng: {fmt_vn(sl)} kg {t_res[1]}\n- Giá chốt: {fmt_vn(dg)} đ/kg\n=> TỔNG THU: {fmt_vn(tong_tien)} VNĐ\n\nSếp có muốn chốt lệnh cho xe xúc hàng không?"
-                                keyboard = {"inline_keyboard": [[{"text": "✅ CHỐT ĐƠN & LẤY ĐỊNH VỊ MAPS", "callback_data": "confirm_order"}], [{"text": "❌ BỎ QUA", "callback_data": "cancel_order"}]]}
-                                requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={"chat_id": chat_id, "text": reply, "reply_markup": keyboard})
-                            else:
-                                requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={"chat_id": chat_id, "text": f"❌ Lỗi: Không tìm thấy Khách '{k_name}' hoặc Mặt hàng '{t_name}' trong dữ liệu."})
-                        else:
-                            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={"chat_id": chat_id, "text": "❌ Sai cú pháp.\nHãy gõ: /taodon Tên_Khách / Tên_Than / Khối_Lượng / Đơn_Giá\nVí dụ: /taodon Anh Mạnh / Than Cục / 1000 / 3500"})
-        except Exception as e:
-            time.sleep(5)
-
-# Đảm bảo luồng ngầm Tele Bot chỉ chạy 1 lần duy nhất trên Server
-if not hasattr(sys, 'tele_thread_started'):
-    sys.tele_thread_started = True
-    threading.Thread(target=run_tele_bot, daemon=True).start()
-
-# ==========================================
-# CÁC CALLBACKS XÓA
-# ==========================================
-if 'edit_t_id' not in st.session_state: st.session_state.edit_t_id = None
-if 'edit_kh_id' not in st.session_state: st.session_state.edit_kh_id = None
-if 'edit_tx_id' not in st.session_state: st.session_state.edit_tx_id = None
-if 'edit_u_id' not in st.session_state: st.session_state.edit_u_id = None
 
 # ==========================================
 # ĐĂNG NHẬP & PHÂN QUYỀN
@@ -315,6 +266,11 @@ if 'edit_u_id' not in st.session_state: st.session_state.edit_u_id = None
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'current_user' not in st.session_state: st.session_state.current_user = None
 if 'user_role' not in st.session_state: st.session_state.user_role = None
+if 'cart' not in st.session_state: st.session_state.cart = []
+if 'last_order_id' not in st.session_state: st.session_state.last_order_id = None
+
+now_dt = datetime.now(timezone.utc) + timedelta(hours=7)
+today_str = now_dt.strftime('%Y-%m-%d')
 
 if not st.session_state.logged_in:
     st.markdown("<div class='main-header'><h1 style='text-align:center;'>HỆ THỐNG QUẢN TRỊ KHO THAN CLOUD</h1></div>", unsafe_allow_html=True)
@@ -493,7 +449,6 @@ if menu == "Thống Kê (HQ)":
         with ch1: st.plotly_chart(px.pie(df_flat.groupby('ten_than')['so_luong'].sum().reset_index(), values='so_luong', names='ten_than', hole=0.4, title="Tỷ trọng than xuất kho"), use_container_width=True)
         with ch2: st.plotly_chart(px.pie(df_flat.groupby('ten_khach')['loi_nhuan'].sum().reset_index(), values='loi_nhuan', names='ten_khach', hole=0.4, title="Lợi nhuận theo khách hàng"), use_container_width=True)
     if auto_refresh: time.sleep(30); st.rerun()
-
 
 # ==========================================
 # PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU
@@ -707,7 +662,8 @@ elif menu == "Giao Hàng & Vận Tải":
                                         cur.execute("INSERT INTO lich_su_thanh_toan (id, don_hang_id, so_tien_tra, hinh_thuc, ngay_tra, ghi_chu, nguoi_tao) VALUES (?,?,?,?,?,?,?)", (lsid, to_int(r['id']), tien_tra_ngay, pt_tt, ts, "Thu tiền hạ hàng", st.session_state.current_user))
                                     c_update.commit()
                                 
-                                send_tele_notify(f"✅ [GIAO THÀNH CÔNG]\n- Mã đơn: {r['ma_don_hien_thi']}\n- Lái xe: {tx_name}\n- Đã thu: {fmt_vn(tien_tra_ngay)} VNĐ\n- Còn nợ: {fmt_vn(tien_con_no_lai)} VNĐ")
+                                # KÍCH HOẠT BOT ZALO
+                                send_zalo_notify(f"✅ [GIAO THÀNH CÔNG]\n- Mã đơn: {r['ma_don_hien_thi']}\n- Lái xe: {tx_name}\n- Đã thu: {fmt_vn(tien_tra_ngay)} VNĐ\n- Còn nợ: {fmt_vn(tien_con_no_lai)} VNĐ")
                                 st.success("Nghiệm thu đơn hoàn tất!"); st.rerun()
                     with c2: 
                         if st.button("🗑️ Hủy Đơn", key=f"huy_don_dang_{r['id']}"): cb_huy_don(to_int(r['id'])); st.rerun()
@@ -821,7 +777,7 @@ elif menu == "Sổ Quản Lý Nợ":
                     st.success("Đã cấn trừ công nợ!"); st.rerun()
 
 # ==========================================
-# PHÂN HỆ QUẢN LÝ TỒN KHO
+# PHÂN HỆ QUẢN LÝ TỒN KHO & ĐÁNH GIÁ
 # ==========================================
 elif menu == "Quản Lý Tồn Kho":
     st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📦 PHÂN TÍCH HÀNG TỒN & CHIẾN LƯỢC ĐẨY KHO</h1></div>", unsafe_allow_html=True)
@@ -909,6 +865,8 @@ elif menu == "Lịch Sử Đơn Hàng":
     if has_high_clearance:
         with tab_chitiet:
             st.markdown("#### Báo cáo chi tiết từng mặt hàng xuất kho")
+            st.caption("🔒 Khu vực dữ liệu bảo mật: Tổng hợp số lượng, đơn giá, nợ đọng theo từng chủng loại và người giao xe.")
+            
             with get_connection() as conn:
                 df_detail = pd.read_sql_query('''
                     SELECT 
@@ -947,21 +905,25 @@ elif menu == "Lịch Sử Đơn Hàng":
                 st.markdown(f"""
                     <div style='background-color: #f0fdf4; padding: 15px; border-radius: 8px; border-left: 5px solid #22c55e; margin-top: 10px; margin-bottom: 20px;'>
                         <h4 style='color: #166534; margin: 0;'>TỔNG HỢP THEO BỘ LỌC HIỆN TẠI</h4>
-                        <span style='font-size: 15px; color: #15803d;'>📦 Tổng khối lượng: <b>{fmt_vn(tong_sl)} kg</b> &nbsp;&nbsp;|&nbsp;&nbsp;💵 Tổng tiền hàng: <b>{fmt_vn(tong_tien)} đ</b> &nbsp;&nbsp;|&nbsp;&nbsp;🚨 Tổng nợ đọng: <b style='color:#dc2626;'>{fmt_vn(tong_no)} đ</b></span>
+                        <span style='font-size: 15px; color: #15803d;'>
+                            📦 Tổng khối lượng: <b>{fmt_vn(tong_sl)} kg</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
+                            💵 Tổng tiền hàng: <b>{fmt_vn(tong_tien)} đ</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
+                            🚨 Tổng nợ đọng: <b style='color:#dc2626;'>{fmt_vn(tong_no)} đ</b>
+                        </span>
                     </div>
                 """, unsafe_allow_html=True)
                 st.download_button("📥 XUẤT SỔ CÁI BÁN HÀNG CHI TIẾT (EXCEL)", data=df_filtered.to_csv(index=False, encoding='utf-8-sig'), file_name=f"SoCai_BanHang_ChiTiet_{today_str}.csv", mime="text/csv", type="primary")
 
 # ==========================================
-# PHÂN HỆ 6: CÀI ĐẶT HỆ THỐNG
+# PHÂN HỆ 6: CÀI ĐẶT HỆ THỐNG - BẢN MASTER/DETAIL MỚI
 # ==========================================
 elif menu == "Cài Đặt Hệ Thống":
     st.markdown("### ⚙️ Cấu Hình Danh Mục Cơ Sở Dữ Liệu")
-    tabs_list = ["1. Danh Mục Loại Than", "2. Quản Lý Khách Hàng", "3. Quản Lý Tài Xế", "4. Phân Quyền Giá Riêng", "5. Hệ Thống (In Bill & Telegram)"]
+    tabs_list = ["1. Danh Mục Loại Than", "2. Quản Lý Khách Hàng", "3. Quản Lý Tài Xế", "4. Phân Quyền Giá Riêng", "5. Hệ Thống (In Bill & Zalo Bot)"]
     if st.session_state.user_role == 'admin': tabs_list.extend(["6. Quản Lý Tài Khoản", "7. System Log"])
     tab_sys = st.selectbox("Chọn hạng mục:", tabs_list)
     
-    # ------------------ 1. LOẠI THAN (MAC) ------------------
+    # ------------------ 1. LOẠI THAN (TÍNH GIÁ VỐN MAC) ------------------
     if tab_sys == "1. Danh Mục Loại Than":
         with get_connection() as conn: 
             df_t = pd.read_sql_query("SELECT id, ten_than as 'Tên Loại Than', gia_nhap_mac_dinh as 'Giá Vốn (đ)', gia_mac_dinh as 'Giá Bán (đ)', ton_kho as 'Tồn Kho (kg)' FROM loai_than", conn.connection)
@@ -1027,6 +989,7 @@ elif menu == "Cài Đặt Hệ Thống":
                     w_in = st.number_input("Khối lượng nhập bãi (kg):", min_value=1, value=1000, step=100, format="%d")
                     p_in = st.number_input("Giá cả chuyến nhập (đ/kg):", value=1500, step=500, format="%d")
                     if st.form_submit_button("Xác nhận lệnh nhập & Hòa trộn giá vốn"):
+                        # THUẬT TOÁN TÍNH GIÁ VỐN BÌNH QUÂN (MOVING AVERAGE COST)
                         ton_kho_cu = to_float(df_t[df_t['id']==to_int(id_n)]['Tồn Kho (kg)'].values[0])
                         gia_von_cu = to_float(df_t[df_t['id']==to_int(id_n)]['Giá Vốn (đ)'].values[0])
                         
@@ -1043,7 +1006,7 @@ elif menu == "Cài Đặt Hệ Thống":
                         st.success(f"Nhập bãi thành công! Giá vốn kho bãi vừa được điều chỉnh thành {fmt_vn(gia_von_moi)} đ/kg."); st.rerun()
             st.dataframe(df_nhap, hide_index=True)
 
-    # ------------------ 2. KHÁCH HÀNG ------------------
+    # ------------------ 2. KHÁCH HÀNG (HẠN MỨC NỢ) ------------------
     elif tab_sys == "2. Quản Lý Khách Hàng":
         with get_connection() as conn: df_k = pd.read_sql_query("SELECT id, ma_khach_hang, ten_khach, sdt, dia_chi, khu_vuc, link_google_maps, lat, lon, han_muc_no FROM khach_hang", conn.connection)
         
@@ -1192,10 +1155,10 @@ elif menu == "Cài Đặt Hệ Thống":
             with get_connection() as conn: df_pq = pd.read_sql_query('SELECT kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than", gr.gia_uu_dai as "Giá Riêng (đ/kg)" FROM gia_rieng gr JOIN khach_hang kh ON gr.khach_hang_id = kh.id JOIN loai_than lt ON gr.loai_than_id = lt.id', conn.connection)
             if not df_pq.empty: st.dataframe(df_pq.style.format({'Giá Riêng (đ/kg)': lambda x: fmt_vn(x)}), hide_index=True, use_container_width=True)
 
-    # ------------------ 5. CẤU HÌNH IN BILL & TELEGRAM BOT ------------------
-    elif tab_sys == "5. Hệ Thống (In Bill & Telegram)":
+    # ------------------ 5. CẤU HÌNH IN BILL & ZALO BOT ------------------
+    elif tab_sys == "5. Hệ Thống (In Bill & Zalo Bot)":
         with get_connection() as conn: config = pd.read_sql_query("SELECT * FROM cau_hinh_in WHERE id = 1", conn.connection).iloc[0]
-        t_in, t_tele = st.tabs(["🖨️ Thông tin Doanh Nghiệp (In Bill)", "🤖 Cấu hình Telegram Bot Đặt Hàng"])
+        t_in, t_zl = st.tabs(["🖨️ Thông tin Doanh Nghiệp (In Bill)", "🤖 Cấu hình Zalo Bot Cảnh Báo"])
         with t_in:
             with st.form("form_print_setting"):
                 ten_ch = st.text_input("Tên Doanh Nghiệp / Bãi Than:", value=config['ten_cua_hang'])
@@ -1204,18 +1167,18 @@ elif menu == "Cài Đặt Hệ Thống":
                 if st.form_submit_button("Cập Nhật Thông Tin", type="primary"):
                     with get_connection() as conn: conn.execute("UPDATE cau_hinh_in SET ten_cua_hang=?, so_dien_thoai=?, thong_tin_ngan_hang=? WHERE id=1", (ten_ch, sdt_ch, stk_ch)); conn.commit()
                     st.success("Đã đồng bộ thông tin in ấn!"); st.rerun()
-        with t_tele:
-            st.info("Telegram Bot không chỉ gửi báo cáo, mà còn cho phép bạn **nhắn tin tạo đơn từ xa**. Bạn hãy nhắn cho Bot theo cú pháp:\n\n👉 `/taodon Tên Khách / Tên Than / Khối Lượng / Đơn Giá`\n\n*(Ví dụ: `/taodon Anh Mạnh / Than Cục / 1500 / 3000`)*")
-            with st.form("form_tele"):
-                tele_active = st.checkbox("Bật tính năng Telegram Bot", value=True if to_int(config.get('tele_active', 0))==1 else False)
-                tele_token = st.text_input("Mã API Token (BotFather):", value=config.get('tele_token', ''), type="password")
-                tele_id = st.text_input("ID Người nhận (Chat ID):", value=config.get('tele_id', ''))
-                if st.form_submit_button("Lưu cấu hình API Telegram", type="primary"):
-                    is_act = 1 if tele_active else 0
-                    with get_connection() as conn: conn.execute("UPDATE cau_hinh_in SET tele_token=?, tele_id=?, tele_active=? WHERE id=1", (tele_token, tele_id, is_act)); conn.commit()
-                    st.success("Cấu hình Telegram đã được thiết lập thành công!"); st.rerun()
+        with t_zl:
+            st.info("Zalo OA Bot sẽ tự động gửi tin nhắn đến điện thoại của bạn mỗi khi Trạm phát lệnh xuất xe hoặc Lái xe thu tiền về báo Cáo.")
+            with st.form("form_zalo"):
+                zalo_active = st.checkbox("Bật tính năng Zalo Bot tự động Nổ tin nhắn", value=True if to_int(config.get('zalo_active', 0))==1 else False)
+                zalo_token = st.text_input("Mã API Access Token (Zalo OA):", value=config.get('zalo_token', ''), type="password", help="Đăng nhập Zalo for Developer để lấy Access Token của OA doanh nghiệp bạn.")
+                zalo_id = st.text_input("ID Người nhận (Zalo User ID):", value=config.get('zalo_id', ''), help="User ID của tài khoản Zalo Giám đốc để nhận tin nổ tự động.")
+                if st.form_submit_button("Lưu cấu hình API Zalo", type="primary"):
+                    is_act = 1 if zalo_active else 0
+                    with get_connection() as conn: conn.execute("UPDATE cau_hinh_in SET zalo_token=?, zalo_id=?, zalo_active=? WHERE id=1", (zalo_token, zalo_id, is_act)); conn.commit()
+                    st.success("Cấu hình Zalo đã được thiết lập thành công!"); st.rerun()
 
-    # ------------------ 6. QUẢN LÝ TÀI KHOẢN ------------------
+    # ------------------ 6. QUẢN LÝ TÀI KHOẢN (ADMIN) ------------------
     elif tab_sys == "6. Quản Lý Tài Khoản":
         if not is_admin: st.error("🔒 Chỉ quản trị viên (Admin) mới có quyền truy cập khu vực này.")
         else:
