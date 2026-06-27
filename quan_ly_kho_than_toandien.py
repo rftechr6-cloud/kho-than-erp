@@ -298,19 +298,20 @@ if not st.session_state.logged_in:
     st.stop()
 
 # ==========================================
+# ==========================================
 # ĐIỀU HƯỚNG MENU THEO PHÂN QUYỀN
 # ==========================================
 ROLE_MENUS = {
-    "admin": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Giao Hàng & Vận Tải", "Sổ Quản Lý Nợ", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"],
-    "manager": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Sổ Quản Lý Nợ", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"], 
-    "ketoan": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Sổ Quản Lý Nợ", "Lịch Sử Đơn Hàng"],
+    "admin": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Giao Hàng & Vận Tải", "Sổ Quản Lý Nợ", "Quản Lý Tồn Kho", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"],
+    "manager": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Sổ Quản Lý Nợ", "Quản Lý Tồn Kho", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"], 
+    "ketoan": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Sổ Quản Lý Nợ", "Quản Lý Tồn Kho", "Lịch Sử Đơn Hàng"],
     "laixe": ["Giao Hàng & Vận Tải", "Lịch Sử Đơn Hàng"]
 }
 
 ROLE_ICONS = {
-    "admin": ['bar-chart-fill', 'receipt-cutoff', 'truck', 'wallet-fill', 'clock-history', 'gear-fill'],
-    "manager": ['bar-chart-fill', 'receipt-cutoff', 'wallet-fill', 'clock-history', 'gear-fill'], 
-    "ketoan": ['bar-chart-fill', 'receipt-cutoff', 'wallet-fill', 'clock-history'],
+    "admin": ['bar-chart-fill', 'receipt-cutoff', 'truck', 'wallet-fill', 'box-seam', 'clock-history', 'gear-fill'],
+    "manager": ['bar-chart-fill', 'receipt-cutoff', 'wallet-fill', 'box-seam', 'clock-history', 'gear-fill'], 
+    "ketoan": ['bar-chart-fill', 'receipt-cutoff', 'wallet-fill', 'box-seam', 'clock-history'],
     "laixe": ['truck', 'clock-history']
 }
 
@@ -791,6 +792,100 @@ elif menu == "Lịch Sử Đơn Hàng":
                 st.download_button("📥 XUẤT SỔ CÁI BÁN HÀNG CHI TIẾT (EXCEL)", data=df_filtered.to_csv(index=False, encoding='utf-8-sig'), file_name=f"SoCai_BanHang_ChiTiet_{today_str}.csv", mime="text/csv", type="primary")
             else:
                 st.info("Chưa có dữ liệu hàng hóa xuất kho chi tiết.")
+# ==========================================
+# PHÂN HỆ MỚI: QUẢN LÝ TỒN KHO & ĐÁNH GIÁ (INVENTORY AGING)
+# ==========================================
+elif menu == "Quản Lý Tồn Kho":
+    st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📦 PHÂN TÍCH HÀNG TỒN & CHIẾN LƯỢC ĐẨY KHO</h1></div>", unsafe_allow_html=True)
+    
+    with get_connection() as conn:
+        # Lấy danh sách tồn kho bãi
+        df_than = pd.read_sql_query("SELECT id, ten_than, ton_kho, gia_nhap_mac_dinh FROM loai_than", conn.connection)
+        
+        # Lấy sức bán 30 ngày qua
+        df_ban = pd.read_sql_query('''
+            SELECT ctdh.loai_than_id, ctdh.so_luong, dh.thoi_gian_tao 
+            FROM chi_tiet_don_hang ctdh 
+            JOIN don_hang dh ON ctdh.don_hang_id = dh.id 
+            WHERE dh.trang_thai_giao = 'Đã hoàn thành'
+        ''', conn.connection)
+        
+        # Lấy lịch sử nhập hàng (để tìm lô cũ nhất)
+        df_nhap = pd.read_sql_query('''
+            SELECT loai_than_id, MAX(ngay_nhap) as ngay_nhap_cuoi 
+            FROM nhap_hang 
+            GROUP BY loai_than_id
+        ''', conn.connection)
+
+    if df_than.empty:
+        st.info("Danh mục kho hàng hiện đang trống.")
+    else:
+        # Làm sạch và tính toán Sức bán 30 ngày
+        if not df_ban.empty:
+            df_ban['thoi_gian_tao'] = pd.to_datetime(df_ban['thoi_gian_tao'])
+            date_30d_ago = now_dt.replace(tzinfo=None) - timedelta(days=30)
+            df_ban_30d = df_ban[df_ban['thoi_gian_tao'] >= date_30d_ago]
+            df_ban_30d['so_luong'] = df_ban_30d['so_luong'].apply(to_float)
+            ban_grouped = df_ban_30d.groupby('loai_than_id')['so_luong'].sum().reset_index().rename(columns={'so_luong': 'Sức Bán 30 Ngày (kg)'})
+        else:
+            ban_grouped = pd.DataFrame(columns=['loai_than_id', 'Sức Bán 30 Ngày (kg)'])
+        
+        # Ghép bảng dữ liệu
+        df_tonghop = pd.merge(df_than, ban_grouped, left_on='id', right_on='loai_than_id', how='left')
+        df_tonghop = pd.merge(df_tonghop, df_nhap, left_on='id', right_on='loai_than_id', how='left')
+        
+        # Xử lý NaN và định dạng số
+        df_tonghop['Sức Bán 30 Ngày (kg)'] = df_tonghop['Sức Bán 30 Ngày (kg)'].fillna(0)
+        df_tonghop['ton_kho'] = df_tonghop['ton_kho'].apply(to_float)
+        df_tonghop['gia_nhap_mac_dinh'] = df_tonghop['gia_nhap_mac_dinh'].apply(to_float)
+        df_tonghop['Tổng Vốn Tồn (đ)'] = df_tonghop['ton_kho'] * df_tonghop['gia_nhap_mac_dinh']
+        
+        # Hàm tính số ngày nằm bãi
+        def calc_days(date_str):
+            if pd.isna(date_str) or not date_str: return 999
+            try: return (now_dt.date() - pd.to_datetime(date_str).date()).days
+            except: return 999
+            
+        df_tonghop['Số Ngày Lưu Bãi'] = df_tonghop['ngay_nhap_cuoi'].apply(calc_days)
+        df_tonghop['Hiển thị ngày'] = df_tonghop['Số Ngày Lưu Bãi'].apply(lambda x: "Chưa có TT nhập" if x == 999 else f"{x} ngày")
+        
+        # AI RULES: Phân loại Tình Trạng Kho
+        def xep_loai(row):
+            if row['ton_kho'] <= 0: return "⚪ Hết hàng"
+            if row['Số Ngày Lưu Bãi'] > 60 and row['ton_kho'] > 0: return "⚠️ Tồn lâu (Cần thanh lý)"
+            if row['ton_kho'] > (row['Sức Bán 30 Ngày (kg)'] * 3) and row['ton_kho'] > 500: return "🔥 Tồn nhiều (Cần đẩy)"
+            if row['ton_kho'] <= (row['Sức Bán 30 Ngày (kg)'] * 0.3) or row['ton_kho'] < 200: return "📉 Sắp hết (Cần nhập)"
+            return "✅ Ổn định"
+            
+        df_tonghop['Cảnh Báo Nhập/Xuất'] = df_tonghop.apply(xep_loai, axis=1)
+        
+        # --- HIỂN THỊ KPI ---
+        tong_von = df_tonghop['Tổng Vốn Tồn (đ)'].sum()
+        tong_kg = df_tonghop['ton_kho'].sum()
+        
+        c1, c2 = st.columns(2)
+        with c1: st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>💸 Tổng Vốn Đang Đọng (Tạm Tính)</div><div class='kpi-value text-purple'>{fmt_vn(tong_von)} VNĐ</div></div>", unsafe_allow_html=True)
+        with c2: st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>⚖️ Tổng Khối Lượng Toàn Bãi</div><div class='kpi-value text-red'>{fmt_vn(tong_kg)} kg</div></div>", unsafe_allow_html=True)
+        
+        # --- BỘ LỌC TÌNH TRẠNG ---
+        st.markdown("#### Bảng Kê Vòng Quay Hàng Hóa Từng Chủng Loại")
+        filter_tt = st.selectbox("Lọc theo trạng thái kho:", ["Tất cả", "⚠️ Tồn lâu (Cần thanh lý)", "🔥 Tồn nhiều (Cần đẩy)", "📉 Sắp hết (Cần nhập)", "✅ Ổn định", "⚪ Hết hàng"])
+        
+        df_show = df_tonghop.copy()
+        if filter_tt != "Tất cả": df_show = df_show[df_show['Cảnh Báo Nhập/Xuất'] == filter_tt]
+        
+        # Chuẩn bị bảng hiển thị đẹp mắt
+        df_show = df_show[['ten_than', 'ton_kho', 'Tổng Vốn Tồn (đ)', 'Sức Bán 30 Ngày (kg)', 'Hiển thị ngày', 'Cảnh Báo Nhập/Xuất']].rename(columns={
+            'ten_than': 'Chủng Loại', 'ton_kho': 'Trữ Lượng Bãi (kg)', 'Hiển thị ngày': 'Nằm Bãi'
+        })
+        
+        st.dataframe(df_show.style.format({
+            'Trữ Lượng Bãi (kg)': lambda x: fmt_vn(x),
+            'Tổng Vốn Tồn (đ)': lambda x: fmt_vn(x),
+            'Sức Bán 30 Ngày (kg)': lambda x: fmt_vn(x)
+        }), hide_index=True, use_container_width=True)
+        
+        st.download_button("📥 XUẤT BÁO CÁO TỒN KHO (EXCEL)", data=df_tonghop.to_csv(index=False, encoding='utf-8-sig'), file_name=f"BaoCao_TonKho_{today_str}.csv", mime="text/csv", type="primary")
 # ==========================================
 # PHÂN HỆ 6: CÀI ĐẶT HỆ THỐNG - BẢN MASTER/DETAIL MỚI
 # ==========================================
