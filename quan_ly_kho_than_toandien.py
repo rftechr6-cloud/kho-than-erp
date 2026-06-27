@@ -644,7 +644,8 @@ elif menu == "Sổ Quản Lý Nợ":
 
 # ==========================================
 # ==========================================
-# PHÂN HỆ 5: LỊCH SỬ ĐƠN HÀNG (CÓ PHÂN QUYỀN BÁO CÁO CHI TIẾT)
+# ==========================================
+# PHÂN HỆ 5: LỊCH SỬ ĐƠN HÀNG (SỔ CÁI BÁN HÀNG CHI TIẾT BẢO MẬT)
 # ==========================================
 elif menu == "Lịch Sử Đơn Hàng":
     st.markdown("### 🗂️ Tra Cứu Lịch Sử Giao Hàng")
@@ -655,7 +656,7 @@ elif menu == "Lịch Sử Đơn Hàng":
     if has_high_clearance:
         tab_tongquan, tab_chitiet = st.tabs(["📋 Tổng Quan Đơn Hàng (Chung)", "📊 Sổ Cái Bán Hàng Chi Tiết (Bảo mật)"])
     else:
-        tab_tongquan = st.container() # Nhân viên thường chỉ thấy 1 trang duy nhất
+        tab_tongquan = st.container() # Nhân viên thường/Tài xế chỉ thấy 1 trang duy nhất
         
     with tab_tongquan:
         st.markdown("#### Nhật ký các chuyến xe đã giao")
@@ -672,65 +673,84 @@ elif menu == "Lịch Sử Đơn Hàng":
     if has_high_clearance:
         with tab_chitiet:
             st.markdown("#### Báo cáo chi tiết từng mặt hàng xuất kho")
-            st.caption("🔒 Khu vực dữ liệu bảo mật: Tổng hợp số lượng, đơn giá xuất bán theo chủng loại. Chỉ dành cho Ban Giám Đốc và Quản Lý.")
+            st.caption("🔒 Khu vực dữ liệu bảo mật: Tổng hợp số lượng, đơn giá, nợ đọng theo từng chủng loại và người giao xe.")
             
             with get_connection() as conn:
-                # Query lấy chi tiết từng mặt hàng kết nối với hóa đơn
+                # Query lấy chi tiết từng mặt hàng kết nối với hóa đơn (Thêm Người Giao, Nợ và Trạng Thái)
                 df_detail = pd.read_sql_query('''
                     SELECT 
                         dh.ngay_ban as "Ngày Bán",
                         dh.ma_don_hien_thi as "Mã Hóa Đơn",
                         kh.ten_khach as "Khách Hàng",
+                        nv.ten_nhan_vien as "Người Giao",
                         lt.ten_than as "Loại Than",
                         ctdh.so_luong as "Số Lượng (kg)",
                         ctdh.don_gia as "Đơn Giá (đ)",
-                        (ctdh.so_luong * ctdh.don_gia) as "Thành Tiền (đ)"
+                        (ctdh.so_luong * ctdh.don_gia) as "Thành Tiền (đ)",
+                        dh.tien_con_no as "Nợ Lại (đ)",
+                        CASE WHEN dh.tien_con_no <= 0 THEN '✅ Hoàn thành' ELSE '⚠️ Báo nợ' END as "Trạng Thái"
                     FROM don_hang dh
                     JOIN chi_tiet_don_hang ctdh ON dh.id = ctdh.don_hang_id
                     JOIN khach_hang kh ON dh.khach_hang_id = kh.id
                     JOIN loai_than lt ON ctdh.loai_than_id = lt.id
+                    LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id
                     WHERE dh.trang_thai_giao = 'Đã hoàn thành'
                     ORDER BY dh.thoi_gian_tao DESC
                 ''', conn.connection)
             
             if not df_detail.empty:
                 # BỘ LỌC THÔNG MINH CHO ADMIN
-                c1, c2 = st.columns(2)
+                c1, c2, c3 = st.columns(3)
                 with c1:
                     khach_list = ["Tất cả"] + list(df_detail['Khách Hàng'].unique())
                     f_khach = st.selectbox("Lọc theo Khách Hàng:", khach_list)
                 with c2:
                     than_list = ["Tất cả"] + list(df_detail['Loại Than'].unique())
                     f_than = st.selectbox("Lọc theo Chủng Loại:", than_list)
+                with c3:
+                    tt_list = ["Tất cả", "✅ Hoàn thành", "⚠️ Báo nợ"]
+                    f_tt = st.selectbox("Lọc Trạng Thái Nợ:", tt_list)
                     
                 # Áp dụng bộ lọc
                 df_filtered = df_detail.copy()
                 if f_khach != "Tất cả": df_filtered = df_filtered[df_filtered['Khách Hàng'] == f_khach]
                 if f_than != "Tất cả": df_filtered = df_filtered[df_filtered['Loại Than'] == f_than]
+                if f_tt != "Tất cả": df_filtered = df_filtered[df_filtered['Trạng Thái'] == f_tt]
 
-                # Chuẩn hóa dữ liệu
-                for col in ['Số Lượng (kg)', 'Đơn Giá (đ)', 'Thành Tiền (đ)']: 
+                # Chuẩn hóa dữ liệu chống lỗi Unicode
+                for col in ['Số Lượng (kg)', 'Đơn Giá (đ)', 'Thành Tiền (đ)', 'Nợ Lại (đ)']: 
                     df_filtered[col] = df_filtered[col].apply(to_float)
+                    
+                # Hiện chữ "Chưa phân xe" nếu thiếu tên tài xế
+                df_filtered['Người Giao'] = df_filtered['Người Giao'].fillna('Chưa phân xe')
                     
                 # Hiển thị bảng chi tiết
                 st.dataframe(df_filtered.style.format({
                     'Số Lượng (kg)': lambda x: fmt_vn(x), 
                     'Đơn Giá (đ)': lambda x: fmt_vn(x), 
-                    'Thành Tiền (đ)': lambda x: fmt_vn(x)
+                    'Thành Tiền (đ)': lambda x: fmt_vn(x),
+                    'Nợ Lại (đ)': lambda x: fmt_vn(x)
                 }), hide_index=True, use_container_width=True)
                 
-                # Thanh tính tổng cho dữ liệu đang hiển thị
+                # Tính tổng dựa trên bộ lọc
                 tong_sl = df_filtered['Số Lượng (kg)'].sum()
                 tong_tien = df_filtered['Thành Tiền (đ)'].sum()
+                
+                # Tính tổng nợ an toàn (loại bỏ trùng lặp hóa đơn nếu 1 hóa đơn có nhiều loại than)
+                tong_no = df_filtered.drop_duplicates(subset=['Mã Hóa Đơn'])['Nợ Lại (đ)'].sum() if not df_filtered.empty else 0
                 
                 st.markdown(f"""
                     <div style='background-color: #f0fdf4; padding: 15px; border-radius: 8px; border-left: 5px solid #22c55e; margin-top: 10px; margin-bottom: 20px;'>
                         <h4 style='color: #166534; margin: 0;'>TỔNG HỢP THEO BỘ LỌC HIỆN TẠI</h4>
-                        <span style='font-size: 16px; color: #15803d;'>📦 Tổng khối lượng xuất: <b>{fmt_vn(tong_sl)} kg</b> &nbsp;&nbsp;|&nbsp;&nbsp; 💵 Tổng tiền hàng: <b>{fmt_vn(tong_tien)} đ</b></span>
+                        <span style='font-size: 15px; color: #15803d;'>
+                            📦 Tổng khối lượng: <b>{fmt_vn(tong_sl)} kg</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
+                            💵 Tổng tiền hàng: <b>{fmt_vn(tong_tien)} đ</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
+                            🚨 Tổng nợ đọng: <b style='color:#dc2626;'>{fmt_vn(tong_no)} đ</b>
+                        </span>
                     </div>
                 """, unsafe_allow_html=True)
                 
-                st.download_button("📥 XUẤT SỔ CÁI BÁN HÀNG (EXCEL)", data=df_filtered.to_csv(index=False, encoding='utf-8-sig'), file_name=f"SoCai_BanHang_ChiTiet_{today_str}.csv", mime="text/csv", type="primary")
+                st.download_button("📥 XUẤT SỔ CÁI BÁN HÀNG CHI TIẾT (EXCEL)", data=df_filtered.to_csv(index=False, encoding='utf-8-sig'), file_name=f"SoCai_BanHang_ChiTiet_{today_str}.csv", mime="text/csv", type="primary")
             else:
                 st.info("Chưa có dữ liệu hàng hóa xuất kho chi tiết.")
 # ==========================================
