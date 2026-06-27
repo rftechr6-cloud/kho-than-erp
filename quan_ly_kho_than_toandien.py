@@ -336,7 +336,8 @@ if menu == "Thống Kê (HQ)":
     with col_head1: st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📊 PHÂN HỆ GIÁM SÁT KINH DOANH TỔNG THỂ</h1></div>", unsafe_allow_html=True)
     with col_head2:
         st.markdown("<br>", unsafe_allow_html=True)
-        auto_refresh = st.checkbox("🔄 Tự động làm mới (30s)", value=True)
+        # BỎ DÒNG NÀY: auto_refresh = st.checkbox("🔄 Tự động làm mới (30s)", value=True)
+        auto_refresh = True # Ép cứng biến luôn luôn Bật (chạy ngầm)
         st.markdown(f"<div style='font-size:13px; color:#10b981; font-weight:bold; text-align:right;'>⏳ Cập nhật lúc: {now_dt.strftime('%H:%M:%S | %d/%m/%Y')}</div>", unsafe_allow_html=True)
 
     time_filter = st.radio("⏳ Mốc thời gian:", ["Hôm nay", "Tuần này", "Tháng này", "Tất cả thời gian"], horizontal=True)
