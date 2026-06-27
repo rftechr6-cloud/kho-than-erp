@@ -643,16 +643,96 @@ elif menu == "Sổ Quản Lý Nợ":
                     st.success("Đã cấn trừ công nợ!"); st.rerun()
 
 # ==========================================
-# PHÂN HỆ 5: LỊCH SỬ ĐƠN HÀNG
+# ==========================================
+# PHÂN HỆ 5: LỊCH SỬ ĐƠN HÀNG (CÓ PHÂN QUYỀN BÁO CÁO CHI TIẾT)
 # ==========================================
 elif menu == "Lịch Sử Đơn Hàng":
     st.markdown("### 🗂️ Tra Cứu Lịch Sử Giao Hàng")
-    with get_connection() as conn: df_his = pd.read_sql_query('''SELECT dh.ma_don_hien_thi as "Mã Đơn", dh.thoi_gian_tao as "Ngày Giờ", kh.ten_khach as "Khách Hàng", nv.ten_nhan_vien as "Tài Xế", dh.tong_tien as "Tổng Tiền", dh.tien_con_no as "Nợ Lại", dh.nguoi_tao as "Người Lập" FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id WHERE dh.trang_thai_giao = 'Đã hoàn thành' ORDER BY dh.id DESC''', conn.connection)
-    if not df_his.empty:
-        for col in ['Tổng Tiền', 'Nợ Lại']: df_his[col] = df_his[col].apply(to_float)
-        st.dataframe(df_his.style.format({'Tổng Tiền': lambda x: fmt_vn(x), 'Nợ Lại': lambda x: fmt_vn(x)}), hide_index=True, use_container_width=True)
-        st.download_button("📥 XUẤT BÁO CÁO EXCEL TRẠM", data=df_his.to_csv(index=False, encoding='utf-8-sig'), file_name=f"BaoCao_BaiThan_{today_str}.csv", mime="text/csv")
+    
+    # Kiểm tra quyền hạn: Chỉ Admin và Manager mới được xem báo cáo chi tiết
+    has_high_clearance = (st.session_state.user_role in ['admin', 'manager'])
+    
+    if has_high_clearance:
+        tab_tongquan, tab_chitiet = st.tabs(["📋 Tổng Quan Đơn Hàng (Chung)", "📊 Sổ Cái Bán Hàng Chi Tiết (Bảo mật)"])
+    else:
+        tab_tongquan = st.container() # Nhân viên thường chỉ thấy 1 trang duy nhất
+        
+    with tab_tongquan:
+        st.markdown("#### Nhật ký các chuyến xe đã giao")
+        with get_connection() as conn: 
+            df_his = pd.read_sql_query('''SELECT dh.ma_don_hien_thi as "Mã Đơn", dh.thoi_gian_tao as "Ngày Giờ", kh.ten_khach as "Khách Hàng", nv.ten_nhan_vien as "Tài Xế", dh.tong_tien as "Tổng Tiền", dh.tien_con_no as "Nợ Lại", dh.nguoi_tao as "Người Lập" FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id WHERE dh.trang_thai_giao = 'Đã hoàn thành' ORDER BY dh.id DESC''', conn.connection)
+        
+        if not df_his.empty:
+            for col in ['Tổng Tiền', 'Nợ Lại']: df_his[col] = df_his[col].apply(to_float)
+            st.dataframe(df_his.style.format({'Tổng Tiền': lambda x: fmt_vn(x), 'Nợ Lại': lambda x: fmt_vn(x)}), hide_index=True, use_container_width=True)
+            st.download_button("📥 XUẤT BÁO CÁO EXCEL TRẠM", data=df_his.to_csv(index=False, encoding='utf-8-sig'), file_name=f"BaoCao_TrangThai_DonHang_{today_str}.csv", mime="text/csv")
+        else:
+            st.info("Chưa có chuyến xe nào hoàn thành.")
 
+    if has_high_clearance:
+        with tab_chitiet:
+            st.markdown("#### Báo cáo chi tiết từng mặt hàng xuất kho")
+            st.caption("🔒 Khu vực dữ liệu bảo mật: Tổng hợp số lượng, đơn giá xuất bán theo chủng loại. Chỉ dành cho Ban Giám Đốc và Quản Lý.")
+            
+            with get_connection() as conn:
+                # Query lấy chi tiết từng mặt hàng kết nối với hóa đơn
+                df_detail = pd.read_sql_query('''
+                    SELECT 
+                        dh.ngay_ban as "Ngày Bán",
+                        dh.ma_don_hien_thi as "Mã Hóa Đơn",
+                        kh.ten_khach as "Khách Hàng",
+                        lt.ten_than as "Loại Than",
+                        ctdh.so_luong as "Số Lượng (kg)",
+                        ctdh.don_gia as "Đơn Giá (đ)",
+                        (ctdh.so_luong * ctdh.don_gia) as "Thành Tiền (đ)"
+                    FROM don_hang dh
+                    JOIN chi_tiet_don_hang ctdh ON dh.id = ctdh.don_hang_id
+                    JOIN khach_hang kh ON dh.khach_hang_id = kh.id
+                    JOIN loai_than lt ON ctdh.loai_than_id = lt.id
+                    WHERE dh.trang_thai_giao = 'Đã hoàn thành'
+                    ORDER BY dh.thoi_gian_tao DESC
+                ''', conn.connection)
+            
+            if not df_detail.empty:
+                # BỘ LỌC THÔNG MINH CHO ADMIN
+                c1, c2 = st.columns(2)
+                with c1:
+                    khach_list = ["Tất cả"] + list(df_detail['Khách Hàng'].unique())
+                    f_khach = st.selectbox("Lọc theo Khách Hàng:", khach_list)
+                with c2:
+                    than_list = ["Tất cả"] + list(df_detail['Loại Than'].unique())
+                    f_than = st.selectbox("Lọc theo Chủng Loại:", than_list)
+                    
+                # Áp dụng bộ lọc
+                df_filtered = df_detail.copy()
+                if f_khach != "Tất cả": df_filtered = df_filtered[df_filtered['Khách Hàng'] == f_khach]
+                if f_than != "Tất cả": df_filtered = df_filtered[df_filtered['Loại Than'] == f_than]
+
+                # Chuẩn hóa dữ liệu
+                for col in ['Số Lượng (kg)', 'Đơn Giá (đ)', 'Thành Tiền (đ)']: 
+                    df_filtered[col] = df_filtered[col].apply(to_float)
+                    
+                # Hiển thị bảng chi tiết
+                st.dataframe(df_filtered.style.format({
+                    'Số Lượng (kg)': lambda x: fmt_vn(x), 
+                    'Đơn Giá (đ)': lambda x: fmt_vn(x), 
+                    'Thành Tiền (đ)': lambda x: fmt_vn(x)
+                }), hide_index=True, use_container_width=True)
+                
+                # Thanh tính tổng cho dữ liệu đang hiển thị
+                tong_sl = df_filtered['Số Lượng (kg)'].sum()
+                tong_tien = df_filtered['Thành Tiền (đ)'].sum()
+                
+                st.markdown(f"""
+                    <div style='background-color: #f0fdf4; padding: 15px; border-radius: 8px; border-left: 5px solid #22c55e; margin-top: 10px; margin-bottom: 20px;'>
+                        <h4 style='color: #166534; margin: 0;'>TỔNG HỢP THEO BỘ LỌC HIỆN TẠI</h4>
+                        <span style='font-size: 16px; color: #15803d;'>📦 Tổng khối lượng xuất: <b>{fmt_vn(tong_sl)} kg</b> &nbsp;&nbsp;|&nbsp;&nbsp; 💵 Tổng tiền hàng: <b>{fmt_vn(tong_tien)} đ</b></span>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                st.download_button("📥 XUẤT SỔ CÁI BÁN HÀNG (EXCEL)", data=df_filtered.to_csv(index=False, encoding='utf-8-sig'), file_name=f"SoCai_BanHang_ChiTiet_{today_str}.csv", mime="text/csv", type="primary")
+            else:
+                st.info("Chưa có dữ liệu hàng hóa xuất kho chi tiết.")
 # ==========================================
 # PHÂN HỆ 6: CÀI ĐẶT HỆ THỐNG - BẢN MASTER/DETAIL MỚI
 # ==========================================
