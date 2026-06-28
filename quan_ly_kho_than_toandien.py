@@ -452,7 +452,8 @@ if menu == "Thống Kê (HQ)":
 
 # ==========================================
 # ==========================================
-# PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU
+# ==========================================
+# PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU (BẢN HOÀN CHỈNH BẢO VỆ TIẾN TRÌNH IN)
 # ==========================================
 elif menu == "Lập Đơn & In Phiếu":
     st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📋 LẬP LỆNH XUẤT KHO</h1></div>", unsafe_allow_html=True)
@@ -571,7 +572,6 @@ elif menu == "Lập Đơn & In Phiếu":
                                 
                                 if stock_ok:
                                     try:
-                                        # Đã cộng 7 giờ để chuẩn múi giờ Việt Nam
                                         ts = (datetime.now(timezone.utc) + timedelta(hours=7)).strftime('%Y-%m-%d %H:%M:%S')
                                         ma_don_final = sinh_ma_don_hang_theo_ngay(today_str)
                                         is_gap = 1 if giao_gap else 0
@@ -586,13 +586,20 @@ elif menu == "Lập Đơn & In Phiếu":
                                                 cur.execute("UPDATE loai_than SET ton_kho = ton_kho - ? WHERE id = ?", (i['so_luong'], to_int(i['loai_than_id'])))
                                             conn.commit()
                                         
-                                        # Gửi thông báo Telegram
-                                        send_tele_notify(f"📢 [LỆNH XUẤT MỚI]\n- Mã đơn: {ma_don_final}\n- Khách: {k_info['ten_khach']}\n- Tổng tiền: {fmt_vn(total_val)} VNĐ\n- Trực ca: {st.session_state.current_user}")
+                                        # === VÙNG BẢO VỆ TUYỆT ĐỐI: LỖI TELEGRAM KHÔNG ĐƯỢC PHÉP CHẶN IN PHIẾU ===
+                                        try:
+                                            send_tele_notify(f"📢 [LỆNH XUẤT MỚI]\n- Mã đơn: {ma_don_final}\n- Khách: {k_info['ten_khach']}\n- Tổng tiền: {fmt_vn(total_val)} VNĐ\n- Trực ca: {st.session_state.current_user}")
+                                        except:
+                                            pass # Nếu lỗi telegram hoặc chưa khai báo hàm, bỏ qua để chạy tiếp lệnh in bên dưới
                                         
+                                        # Thiết lập trạng thái chuyển sang màn hình in ngay lập tức
                                         write_log("Lập đơn hàng", "SUCCESS", f"Mã phiếu: {ma_don_final}")
-                                        st.session_state.cart = []; st.session_state.last_order_id = new_id; st.rerun()
+                                        st.session_state.cart = []
+                                        st.session_state.last_order_id = new_id
+                                        st.rerun()
                                     except Exception as e: 
                                         write_log("Lập đơn hàng", "ERROR", str(e))
+                                        st.error(f"Lỗi hệ thống bãi xe: {str(e)}")
                 else: st.info("Giỏ hàng rỗng.")
                 st.markdown("</div>", unsafe_allow_html=True)
 # ==========================================
