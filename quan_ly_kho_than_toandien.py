@@ -571,9 +571,23 @@ elif menu == "Lập Đơn & In Phiếu":
                                     if to_float(i['so_luong']) > ton_val: stock_ok = False; st.error(f"Cảnh báo: Mã {i['ten_than']} vượt trữ lượng bãi xe!")
                                 if stock_ok:
                                     try:
-                                        ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'); ma_don_final = sinh_ma_don_hang_theo_ngay(today_str); is_gap = 1 if giao_gap else 0
+                                        with bx2:
+                        if st.button("🚀 XUẤT PHIẾU VÀ ĐẨY LỆNH", type="primary", use_container_width=True):
+                            if han_muc_no > 0 and (no_hien_tai + total_val) > han_muc_no:
+                                st.error(f"⛔ Khách hàng này đã vượt hạn mức công nợ! (Nợ cũ: {fmt_vn(no_hien_tai)}đ + Đơn mới: {fmt_vn(total_val)}đ > Hạn mức: {fmt_vn(han_muc_no)}đ)")
+                            else:
+                                stock_ok = True
+                                for i in st.session_state.cart:
+                                    ton_check = df_than[df_than['id'] == to_int(i['loai_than_id'])]
+                                    ton_val = to_float(ton_check['ton_kho'].values[0]) if not ton_check.empty else 0.0
+                                    if to_float(i['so_luong']) > ton_val: stock_ok = False; st.error(f"Cảnh báo: Mã {i['ten_than']} vượt trữ lượng bãi xe!")
+                                if stock_ok:
+                                    try:
+                                        # ---> DÒNG ĐÃ ĐƯỢC SỬA: CỘNG THÊM 7 GIỜ CHO MÚI GIỜ VIỆT NAM <---
+                                        ts = (datetime.now(timezone.utc) + timedelta(hours=7)).strftime('%Y-%m-%d %H:%M:%S')
+                                        ma_don_final = sinh_ma_don_hang_theo_ngay(today_str)
+                                        is_gap = 1 if giao_gap else 0
                                         with get_connection() as conn:
-                                            cur = conn.cursor()
                                             new_id = get_next_id('don_hang', cur)
                                             cur.execute('INSERT INTO don_hang (id, ma_don_hien_thi, khach_hang_id, ngay_ban, thoi_gian_tao, trang_thai_giao, ghi_chu, giao_gap, tong_tien, tien_con_no, nguoi_tao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', (new_id, ma_don_final, to_int(khach_id), today_str, ts, 'Chờ giao hàng', g_chu, is_gap, float(total_val), float(total_val), st.session_state.current_user))
                                             for i in st.session_state.cart:
