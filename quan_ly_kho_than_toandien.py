@@ -451,10 +451,11 @@ if menu == "Thống Kê (HQ)":
     if auto_refresh: time.sleep(30); st.rerun()
 
 # ==========================================
+# ==========================================
 # PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU
 # ==========================================
 elif menu == "Lập Đơn & In Phiếu":
-    st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📋 HỆ THỐNG LẬP LỆNH XUẤT KHO CHUYÊN NGHIỆP</h1></div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📋 LẬP LỆNH XUẤT KHO</h1></div>", unsafe_allow_html=True)
     with get_connection() as conn: print_config = pd.read_sql_query("SELECT * FROM cau_hinh_in WHERE id = 1", conn.connection).iloc[0]
         
     if st.session_state.last_order_id:
@@ -499,7 +500,6 @@ elif menu == "Lập Đơn & In Phiếu":
                 khach_dict = dict(zip(df_khach['id'], "[" + df_khach['ma_khach_hang'].astype(str) + "] " + df_khach['ten_khach'].astype(str)))
                 khach_id = st.selectbox("Chọn Khách Hàng:", options=list(khach_dict.keys()), format_func=lambda x: khach_dict.get(x))
                 
-                # Fetch Hạn Mức Khách Hàng
                 k_info = df_khach[df_khach['id']==khach_id].iloc[0]
                 han_muc_no = to_float(k_info.get('han_muc_no', 0))
                 with get_connection() as conn:
@@ -520,7 +520,7 @@ elif menu == "Lập Đơn & In Phiếu":
                 df_tk_filter = df_than[df_than['id']==t_id]
                 gia_goi_y = gr_res[0] if gr_res else (df_tk_filter['gia_mac_dinh'].values[0] if not df_tk_filter.empty else 0)
                 ton_kho_hien_tai = to_float(df_tk_filter['ton_kho'].values[0]) if not df_tk_filter.empty else 0.0
-                gia_von_kho = to_float(df_tk_filter['gia_nhap_mac_dinh'].values[0]) if not df_tk_filter.empty else 0.0 # Bám sát giá vốn
+                gia_von_kho = to_float(df_tk_filter['gia_nhap_mac_dinh'].values[0]) if not df_tk_filter.empty else 0.0
                 
                 st.markdown(f"Trữ lượng bãi thực tế: <b style='color:#2563eb;'>{fmt_vn(ton_kho_hien_tai)} kg</b>", unsafe_allow_html=True)
                 st.markdown("---")
@@ -560,7 +560,6 @@ elif menu == "Lập Đơn & In Phiếu":
                             st.session_state.cart = []; st.rerun()
                     with bx2:
                         if st.button("🚀 XUẤT PHIẾU VÀ ĐẨY LỆNH", type="primary", use_container_width=True):
-                            # KIỂM TRA HẠN MỨC CÔNG NỢ
                             if han_muc_no > 0 and (no_hien_tai + total_val) > han_muc_no:
                                 st.error(f"⛔ Khách hàng này đã vượt hạn mức công nợ! (Nợ cũ: {fmt_vn(no_hien_tai)}đ + Đơn mới: {fmt_vn(total_val)}đ > Hạn mức: {fmt_vn(han_muc_no)}đ)")
                             else:
@@ -569,22 +568,7 @@ elif menu == "Lập Đơn & In Phiếu":
                                     ton_check = df_than[df_than['id'] == to_int(i['loai_than_id'])]
                                     ton_val = to_float(ton_check['ton_kho'].values[0]) if not ton_check.empty else 0.0
                                     if to_float(i['so_luong']) > ton_val: stock_ok = False; st.error(f"Cảnh báo: Mã {i['ten_than']} vượt trữ lượng bãi xe!")
-                                if stock_ok:
-                                    try:
-                                       bx1, bx2 = st.columns(2)
-                    with bx1:
-                        if st.button("🗑️ HỦY PHIẾU TẠM", type="secondary", use_container_width=True):
-                            st.session_state.cart = []; st.rerun()
-                    with bx2:
-                        if st.button("🚀 XUẤT PHIẾU VÀ ĐẨY LỆNH", type="primary", use_container_width=True):
-                            if han_muc_no > 0 and (no_hien_tai + total_val) > han_muc_no:
-                                st.error(f"⛔ Khách hàng này đã vượt hạn mức công nợ! (Nợ cũ: {fmt_vn(no_hien_tai)}đ + Đơn mới: {fmt_vn(total_val)}đ > Hạn mức: {fmt_vn(han_muc_no)}đ)")
-                            else:
-                                stock_ok = True
-                                for i in st.session_state.cart:
-                                    ton_check = df_than[df_than['id'] == to_int(i['loai_than_id'])]
-                                    ton_val = to_float(ton_check['ton_kho'].values[0]) if not ton_check.empty else 0.0
-                                    if to_float(i['so_luong']) > ton_val: stock_ok = False; st.error(f"Cảnh báo: Mã {i['ten_than']} vượt trữ lượng bãi xe!")
+                                
                                 if stock_ok:
                                     try:
                                         # Đã cộng 7 giờ để chuẩn múi giờ Việt Nam
@@ -607,17 +591,10 @@ elif menu == "Lập Đơn & In Phiếu":
                                         
                                         write_log("Lập đơn hàng", "SUCCESS", f"Mã phiếu: {ma_don_final}")
                                         st.session_state.cart = []; st.session_state.last_order_id = new_id; st.rerun()
-                                    except Exception as e: write_log("Lập đơn hàng", "ERROR", str(e))
-                                        
-                                        # KÍCH HOẠT BOT ZALO
-                                        send_zalo_notify(f"📢 [LỆNH XUẤT MỚI]\n- Mã đơn: {ma_don_final}\n- Khách: {k_info['ten_khach']}\n- Tổng tiền: {fmt_vn(total_val)} VNĐ\n- Trực ca: {st.session_state.current_user}")
-                                        
-                                        write_log("Lập đơn hàng", "SUCCESS", f"Mã phiếu: {ma_don_final}")
-                                        st.session_state.cart = []; st.session_state.last_order_id = new_id; st.rerun()
-                                    except Exception as e: write_log("Lập đơn hàng", "ERROR", str(e))
+                                    except Exception as e: 
+                                        write_log("Lập đơn hàng", "ERROR", str(e))
                 else: st.info("Giỏ hàng rỗng.")
                 st.markdown("</div>", unsafe_allow_html=True)
-
 # ==========================================
 # PHÂN HỆ 3: GIAO HÀNG & ĐIỀU VẬN TÀI XẾ
 # ==========================================
