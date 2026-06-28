@@ -1006,7 +1006,7 @@ elif menu == "Cài Đặt Hệ Thống":
                         st.success(f"Nhập bãi thành công! Giá vốn kho bãi vừa được điều chỉnh thành {fmt_vn(gia_von_moi)} đ/kg."); st.rerun()
             st.dataframe(df_nhap, hide_index=True)
 
-    # ------------------ 2. KHÁCH HÀNG (HẠN MỨC NỢ) ------------------
+  # ------------------ 2. KHÁCH HÀNG (HẠN MỨC NỢ) ------------------
     elif tab_sys == "2. Quản Lý Khách Hàng":
         with get_connection() as conn: df_k = pd.read_sql_query("SELECT id, ma_khach_hang, ten_khach, sdt, dia_chi, khu_vuc, link_google_maps, lat, lon, han_muc_no FROM khach_hang", conn.connection)
         
@@ -1029,8 +1029,11 @@ elif menu == "Cài Đặt Hệ Thống":
                 with bc1:
                     if st.form_submit_button("💾 LƯU", type="primary"):
                         lat, lon = parse_coords(ek_toado)
+                        # Tạo link Maps tự động từ tọa độ
+                        generated_link = f"https://www.google.com/maps?q={lat},{lon}" if lat != 0.0 else ""
+                        
                         with get_connection() as conn: 
-                            conn.execute("UPDATE khach_hang SET ten_khach=?, sdt=?, khu_vuc=?, lat=?, lon=?, han_muc_no=? WHERE id=?", (ekn.strip(), ekp, ekk, lat, lon, ek_hm, edit_id))
+                            conn.execute("UPDATE khach_hang SET ten_khach=?, sdt=?, khu_vuc=?, lat=?, lon=?, link_google_maps=?, han_muc_no=? WHERE id=?", (ekn.strip(), ekp, ekk, lat, lon, generated_link, ek_hm, edit_id))
                             conn.commit()
                         st.session_state.edit_kh_id = None; st.rerun()
                 with bc2:
@@ -1051,9 +1054,13 @@ elif menu == "Cài Đặt Hệ Thống":
                 
                 if st.form_submit_button("Lưu Hồ Sơ", type="primary"):
                     lat, lon = parse_coords(k_toado)
+                    # Tạo link Maps tự động khi thêm mới
+                    generated_link = f"https://www.google.com/maps?q={lat},{lon}" if lat != 0.0 else ""
+                    
                     with get_connection() as conn:
                         nid = get_next_id('khach_hang', conn.cursor())
-                        conn.execute("INSERT INTO khach_hang (id, ma_khach_hang, ten_khach, sdt, khu_vuc, nguoi_tao, lat, lon, han_muc_no) VALUES(?,?,?,?,?,?,?,?,?)", (nid, f"KH{nid:04d}", kn.strip(), kp, kkv, st.session_state.current_user, lat, lon, kh_hm))
+                        # Chú ý: Đã bổ sung link_google_maps vào câu lệnh INSERT
+                        conn.execute("INSERT INTO khach_hang (id, ma_khach_hang, ten_khach, sdt, khu_vuc, nguoi_tao, lat, lon, link_google_maps, han_muc_no) VALUES(?,?,?,?,?,?,?,?,?,?)", (nid, f"KH{nid:04d}", kn.strip(), kp, kkv, st.session_state.current_user, lat, lon, generated_link, kh_hm))
                         conn.commit()
                     st.success("Đã lưu hồ sơ đối tác VIP!"); st.rerun()
             st.markdown("---")
@@ -1078,7 +1085,6 @@ elif menu == "Cài Đặt Hệ Thống":
                             if st.button("✏️", key=f"edit_kh_{r['id']}"): st.session_state.edit_kh_id = r['id']; st.rerun()
                         with cc6: 
                             if st.button("❌", key=f"del_kh_{r['id']}"): cb_xoa_khach(r['id']); st.rerun()
-
     # ------------------ 3. TÀI XẾ ------------------
     elif tab_sys == "3. Quản Lý Tài Xế":
         with get_connection() as conn: df_nv = pd.read_sql_query("SELECT id, ten_nhan_vien, sdt FROM nhan_vien", conn.connection)
