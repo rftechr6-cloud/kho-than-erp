@@ -571,7 +571,11 @@ elif menu == "Lập Đơn & In Phiếu":
                                     if to_float(i['so_luong']) > ton_val: stock_ok = False; st.error(f"Cảnh báo: Mã {i['ten_than']} vượt trữ lượng bãi xe!")
                                 if stock_ok:
                                     try:
-                                        with bx2:
+                                       bx1, bx2 = st.columns(2)
+                    with bx1:
+                        if st.button("🗑️ HỦY PHIẾU TẠM", type="secondary", use_container_width=True):
+                            st.session_state.cart = []; st.rerun()
+                    with bx2:
                         if st.button("🚀 XUẤT PHIẾU VÀ ĐẨY LỆNH", type="primary", use_container_width=True):
                             if han_muc_no > 0 and (no_hien_tai + total_val) > han_muc_no:
                                 st.error(f"⛔ Khách hàng này đã vượt hạn mức công nợ! (Nợ cũ: {fmt_vn(no_hien_tai)}đ + Đơn mới: {fmt_vn(total_val)}đ > Hạn mức: {fmt_vn(han_muc_no)}đ)")
@@ -583,11 +587,13 @@ elif menu == "Lập Đơn & In Phiếu":
                                     if to_float(i['so_luong']) > ton_val: stock_ok = False; st.error(f"Cảnh báo: Mã {i['ten_than']} vượt trữ lượng bãi xe!")
                                 if stock_ok:
                                     try:
-                                        # ---> DÒNG ĐÃ ĐƯỢC SỬA: CỘNG THÊM 7 GIỜ CHO MÚI GIỜ VIỆT NAM <---
+                                        # Đã cộng 7 giờ để chuẩn múi giờ Việt Nam
                                         ts = (datetime.now(timezone.utc) + timedelta(hours=7)).strftime('%Y-%m-%d %H:%M:%S')
                                         ma_don_final = sinh_ma_don_hang_theo_ngay(today_str)
                                         is_gap = 1 if giao_gap else 0
+                                        
                                         with get_connection() as conn:
+                                            cur = conn.cursor()
                                             new_id = get_next_id('don_hang', cur)
                                             cur.execute('INSERT INTO don_hang (id, ma_don_hien_thi, khach_hang_id, ngay_ban, thoi_gian_tao, trang_thai_giao, ghi_chu, giao_gap, tong_tien, tien_con_no, nguoi_tao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', (new_id, ma_don_final, to_int(khach_id), today_str, ts, 'Chờ giao hàng', g_chu, is_gap, float(total_val), float(total_val), st.session_state.current_user))
                                             for i in st.session_state.cart:
@@ -595,6 +601,13 @@ elif menu == "Lập Đơn & In Phiếu":
                                                 cur.execute('INSERT INTO chi_tiet_don_hang (id, don_hang_id, loai_than_id, so_luong, don_gia, don_gia_von) VALUES (?, ?, ?, ?, ?, ?)', (ct_id, new_id, to_int(i['loai_than_id']), i['so_luong'], i['don_gia'], i.get('don_gia_von', 0)))
                                                 cur.execute("UPDATE loai_than SET ton_kho = ton_kho - ? WHERE id = ?", (i['so_luong'], to_int(i['loai_than_id'])))
                                             conn.commit()
+                                        
+                                        # Gửi thông báo Telegram
+                                        send_tele_notify(f"📢 [LỆNH XUẤT MỚI]\n- Mã đơn: {ma_don_final}\n- Khách: {k_info['ten_khach']}\n- Tổng tiền: {fmt_vn(total_val)} VNĐ\n- Trực ca: {st.session_state.current_user}")
+                                        
+                                        write_log("Lập đơn hàng", "SUCCESS", f"Mã phiếu: {ma_don_final}")
+                                        st.session_state.cart = []; st.session_state.last_order_id = new_id; st.rerun()
+                                    except Exception as e: write_log("Lập đơn hàng", "ERROR", str(e))
                                         
                                         # KÍCH HOẠT BOT ZALO
                                         send_zalo_notify(f"📢 [LỆNH XUẤT MỚI]\n- Mã đơn: {ma_don_final}\n- Khách: {k_info['ten_khach']}\n- Tổng tiền: {fmt_vn(total_val)} VNĐ\n- Trực ca: {st.session_state.current_user}")
