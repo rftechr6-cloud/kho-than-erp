@@ -1006,7 +1006,7 @@ elif menu == "Cài Đặt Hệ Thống":
                         st.success(f"Nhập bãi thành công! Giá vốn kho bãi vừa được điều chỉnh thành {fmt_vn(gia_von_moi)} đ/kg."); st.rerun()
             st.dataframe(df_nhap, hide_index=True)
 
- # ------------------ 2. QUẢN LÝ KHÁCH HÀNG ------------------
+# ------------------ 2. KHÁCH HÀNG ------------------
     elif tab_sys == "2. Quản Lý Khách Hàng":
         with get_connection() as conn: 
             df_k = pd.read_sql_query("SELECT id, ma_khach_hang, ten_khach, sdt, dia_chi, khu_vuc, link_google_maps, lat, lon, han_muc_no FROM khach_hang", conn.connection)
@@ -1043,6 +1043,7 @@ elif menu == "Cài Đặt Hệ Thống":
                     if st.form_submit_button("Hủy bỏ"): st.session_state.edit_kh_id = None; st.rerun()
             st.markdown("---")
 
+        # === KHU VỰC THÊM MỚI ===
         elif can_edit:
             st.markdown("#### ➕ Thêm Đối Tác Mới")
             with st.form("f_k_add"):
@@ -1054,7 +1055,7 @@ elif menu == "Cài Đặt Hệ Thống":
                     kd = st.text_input("Địa chỉ bãi nhận:")
                 with c2: 
                     k_toado = st.text_input("Tọa độ bản đồ (Lat, Lon):", placeholder="VD: 21.0285, 105.8542")
-                    kh_hm = st.number_input("Hạn mức nợ tối đa (đ):", min_value=0, value=0, step=1000000)
+                    kh_hm = st.number_input("Hạn mức nợ tối đa (đ):", min_value=0, value=0, step=1000000, help="Để 0 = Nợ không giới hạn")
                 
                 if st.form_submit_button("Lưu Hồ Sơ", type="primary"):
                     lat, lon = parse_coords(k_toado)
@@ -1066,6 +1067,40 @@ elif menu == "Cài Đặt Hệ Thống":
                         conn.commit()
                     st.success("Đã lưu hồ sơ đối tác!"); st.rerun()
             st.markdown("---")
+
+        # === DANH SÁCH KHÁCH HÀNG KÈM NÚT SỬA/XÓA TRỰC TIẾP ===
+        st.markdown("#### 📋 Quản Lý Hồ Sơ Đối Tác")
+        if not df_k.empty: 
+            c1, c2, c3, c4, c5 = st.columns([1.5, 3, 2, 4, 1.5])
+            c1.markdown("<b>Mã KH</b>", unsafe_allow_html=True)
+            c2.markdown("<b>Tên Khách</b>", unsafe_allow_html=True)
+            c3.markdown("<b>SĐT</b>", unsafe_allow_html=True)
+            c4.markdown("<b>Hạn Mức</b>", unsafe_allow_html=True)
+            if can_edit: c5.markdown("<b>Thao tác</b>", unsafe_allow_html=True)
+            
+            for idx, r in df_k.iterrows():
+                with st.container():
+                    if can_edit: 
+                        cc1, cc2, cc3, cc4, cc5, cc6 = st.columns([1.5, 3, 2, 4, 0.75, 0.75])
+                    else: 
+                        cc1, cc2, cc3, cc4 = st.columns([1.5, 3, 2, 4])
+                        
+                    cc1.markdown(f"<div class='list-row'>{r['ma_khach_hang']}</div>", unsafe_allow_html=True)
+                    cc2.markdown(f"<div class='list-row'>{r['ten_khach']}</div>", unsafe_allow_html=True)
+                    cc3.markdown(f"<div class='list-row'>{r['sdt']}</div>", unsafe_allow_html=True)
+                    
+                    hm_str = fmt_vn(r['han_muc_no']) + " đ" if r['han_muc_no'] > 0 else "Vô hạn"
+                    cc4.markdown(f"<div class='list-row'>{hm_str}</div>", unsafe_allow_html=True)
+                    
+                    if can_edit:
+                        with cc5: 
+                            if st.button("✏️", key=f"edit_kh_{r['id']}"): 
+                                st.session_state.edit_kh_id = r['id']
+                                st.rerun()
+                        with cc6: 
+                            if st.button("❌", key=f"del_kh_{r['id']}"): 
+                                cb_xoa_khach(r['id'])
+                                st.rerun()
     # ------------------ 3. TÀI XẾ ------------------
     elif tab_sys == "3. Quản Lý Tài Xế":
         with get_connection() as conn: df_nv = pd.read_sql_query("SELECT id, ten_nhan_vien, sdt FROM nhan_vien", conn.connection)
