@@ -231,8 +231,9 @@ def init_database():
             uid = get_next_id('users', cursor)
             cursor.execute("INSERT INTO users (id, username, password, role, status) VALUES (?, ?, ?, 'admin', 'Đã duyệt')", (uid, 'admin', hash_password(st.secrets["admin_pass"])))
         
-        # --- BỔ SUNG 2 CỘT QUY CÁCH CHO BẢNG LOẠI THAN Ở ĐÂY ---
         cursor.execute('''CREATE TABLE IF NOT EXISTS loai_than (id INTEGER PRIMARY KEY, ten_than VARCHAR(255) UNIQUE, gia_nhap_mac_dinh DOUBLE, gia_mac_dinh DOUBLE, ton_kho DOUBLE, nguoi_tao VARCHAR(255))''')
+        
+        # --- 2 DÒNG LỆNH QUAN TRỌNG ĐỂ FIX LỖI DATABASE ---
         check_and_add_column(cursor, 'loai_than', 'don_vi_tinh', "VARCHAR(50) DEFAULT 'kg'")
         check_and_add_column(cursor, 'loai_than', 'he_so_kg', "DOUBLE DEFAULT 1.0")
         
@@ -259,6 +260,7 @@ def init_database():
         check_and_add_column(cursor, 'cau_hinh_in', 'tele_active', 'INTEGER DEFAULT 0')
         cursor.execute("INSERT OR IGNORE INTO cau_hinh_in (id, thong_tin_ngan_hang) VALUES (1, 'Chưa cài đặt')")
         
+        # BẢNG MỚI: SỔ QUỸ
         cursor.execute('''CREATE TABLE IF NOT EXISTS so_quy (id INTEGER PRIMARY KEY, ngay DATE, thoi_gian TIMESTAMP, loai_phieu VARCHAR(50), so_tien DOUBLE, hang_muc VARCHAR(255), nguoi_tao VARCHAR(255), ghi_chu TEXT)''')
         conn.commit()
 
