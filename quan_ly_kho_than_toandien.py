@@ -161,12 +161,12 @@ def check_and_add_column(cursor, table, col_name, col_def):
 
 @st.cache_resource
 @st.cache_resource
+@st.cache_resource
 def init_local_db():
     conn = sqlite3.connect("kho_than.db", check_same_thread=False)
     client = get_gspread_client()
     sheet = client.open_by_url(SHEET_URL)
     
-    # 1. Nạp dữ liệu từ Google Sheets vào SQLite
     for ws in sheet.worksheets():
         data = ws.get_all_records()
         if data:
@@ -177,43 +177,35 @@ def init_local_db():
                 df = df.dropna(subset=['id'])
             df.to_sql(ws.title, conn, if_exists='replace', index=False)
     
-    # 2. Dọn dẹp dữ liệu an toàn (Kiểm tra bảng tồn tại trước)
-    cursor = conn.cursor()
-    tables_to_clean = ["loai_than", "khach_hang", "nhan_vien"]
-    
-    for table in tables_to_clean:
-        # Kiểm tra xem bảng có tồn tại không
-        cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'")
-        if cursor.fetchone():
-            try:
-                # Dọn dẹp dòng rác
-                cursor.execute(f"DELETE FROM {table} WHERE id IS NULL OR TRIM(ten_{table.replace('loai_than', 'than').replace('khach_hang', 'khach').replace('nhan_vien', 'nhan_vien')}) = ''")
-                conn.commit()
-            except Exception as e:
-                print(f"Lỗi dọn dẹp bảng {table}: {e}")
-        
+    try:
+        conn.execute("DELETE FROM loai_than WHERE id IS NULL OR TRIM(ten_than) = ''")
+        conn.execute("DELETE FROM khach_hang WHERE id IS NULL OR TRIM(ten_khach) = ''")
+        conn.execute("DELETE FROM nhan_vien WHERE id IS NULL OR TRIM(ten_nhan_vien) = ''")
+        conn.commit()
+    except: pass
     return conn
+
 def background_sync_task():
     try:
         bg_conn = sqlite3.connect("kho_than.db", check_same_thread=False)
         client = get_gspread_client()
         sheet = client.open_by_url(SHEET_URL)
         tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table'", bg_conn)
+        
         for table_name in tables['name']:
             if table_name == "sqlite_sequence": continue
             df = pd.read_sql_query(f"SELECT * FROM {table_name}", bg_conn)
             
-            # 🛡️ BƯỚC BẢO VỆ 1: NẾU BẢNG BỊ TRỐNG DO REBOOT, DỪNG NGAY LẬP TỨC, KHÔNG ĐƯỢC XÓA SHEETS
+            # BẢO VỆ: Nếu bảng trống do lỗi, bỏ qua ngay, tuyệt đối không xóa Google Sheets
             if df.empty: continue 
             
             for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns: df[col] = df[col].astype(str)
             try: ws = sheet.worksheet(table_name)
             except gspread.WorksheetNotFound: ws = sheet.add_worksheet(title=table_name, rows=100, cols=20)
             
-            # 🛡️ BƯỚC BẢO VỆ 2: CHỈ XÓA KHI CHẮC CHẮN ĐÃ LẤY ĐƯỢC DỮ LIỆU ĐỂ ĐÈ LÊN
+            # Đã gỡ bỏ time.sleep() để ép đồng bộ diễn ra chớp nhoáng
             ws.clear()
             ws.update(values=[df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist(), range_name="A1")
-            time.sleep(1) # Tránh nghẽn mạng Google API
     except: pass 
     finally: bg_conn.close()
 
@@ -224,6 +216,7 @@ def get_connection():
         def __init__(self, c): self.c = c
         def commit(self):
             self.c.commit()
+            # Khởi chạy robot đồng bộ ngầm siêu tốc
             threading.Thread(target=background_sync_task, daemon=True).start()
         def cursor(self): return self.c.cursor()
         def execute(self, q, p=None): return self.c.execute(q, p) if p else self.c.execute(q)
@@ -231,7 +224,6 @@ def get_connection():
         def connection(self): return self.c
     try: yield ConnectionWrapper(conn)
     finally: conn.close()
-
 def get_next_id(table, cursor):
     try:
         cursor.execute(f"SELECT MAX(id) FROM {table}")
