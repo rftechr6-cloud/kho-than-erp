@@ -161,6 +161,9 @@ def check_and_add_column(cursor, table, col_name, col_def):
 
 @st.cache_resource
 @st.cache_resource
+# --- BỘ ĐẾM GIỜ CHỐNG NGHẼN MẠNG GOOGLE ---
+sync_timer = None
+
 @st.cache_resource
 def init_local_db():
     conn = sqlite3.connect("kho_than.db", check_same_thread=False)
@@ -171,11 +174,15 @@ def init_local_db():
         data = ws.get_all_records()
         if data:
             df = pd.DataFrame(data)
-            df = df.dropna(how='all')
+            # Quét sạch các dòng rác (trống) do quá trình đè dữ liệu sinh ra
+            df = df.replace('', pd.NA).dropna(how='all')
+            
             if 'id' in df.columns: 
                 df['id'] = pd.to_numeric(df['id'], errors='coerce')
                 df = df.dropna(subset=['id'])
-            df.to_sql(ws.title, conn, if_exists='replace', index=False)
+                
+            if not df.empty:
+                df.to_sql(ws.title, conn, if_exists='replace', index=False)
     
     try:
         conn.execute("DELETE FROM loai_than WHERE id IS NULL OR TRIM(ten_than) = ''")
@@ -196,18 +203,33 @@ def background_sync_task():
             if table_name == "sqlite_sequence": continue
             df = pd.read_sql_query(f"SELECT * FROM {table_name}", bg_conn)
             
-            # BẢO VỆ: Nếu bảng trống do lỗi, bỏ qua ngay, tuyệt đối không xóa Google Sheets
+            # BẢO VỆ TỐI THƯỢNG: Nếu bảng trống, tuyệt đối không đồng bộ để chống mất dữ liệu
             if df.empty: continue 
             
-            for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns: df[col] = df[col].astype(str)
+            for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns: 
+                df[col] = df[col].astype(str)
+                
             try: ws = sheet.worksheet(table_name)
             except gspread.WorksheetNotFound: ws = sheet.add_worksheet(title=table_name, rows=100, cols=20)
             
-            # Đã gỡ bỏ time.sleep() để ép đồng bộ diễn ra chớp nhoáng
-            ws.clear()
-            ws.update(values=[df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist(), range_name="A1")
+            # TUYỆT CHIÊU: Chèn thêm 30 dòng trống để đè lên rác cũ (thay thế lệnh ws.clear() nguy hiểm)
+            values = [df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist()
+            empty_row = [""] * len(df.columns)
+            values.extend([empty_row] * 30)
+            
+            # Cập nhật an toàn
+            ws.update(values=values, range_name="A1")
+            time.sleep(1) # Nghỉ 1s tránh Google chặn API
     except: pass 
     finally: bg_conn.close()
+
+def trigger_sync():
+    global sync_timer
+    if sync_timer is not None: sync_timer.cancel()
+    # Gom các thao tác lại, đợi 3 giây sau cú click cuối cùng mới đồng bộ
+    sync_timer = threading.Timer(3.0, background_sync_task)
+    sync_timer.daemon = True
+    sync_timer.start()
 
 @contextmanager
 def get_connection():
@@ -216,8 +238,7 @@ def get_connection():
         def __init__(self, c): self.c = c
         def commit(self):
             self.c.commit()
-            # Khởi chạy robot đồng bộ ngầm siêu tốc
-            threading.Thread(target=background_sync_task, daemon=True).start()
+            trigger_sync() # Gọi con robot gom dữ liệu thông minh
         def cursor(self): return self.c.cursor()
         def execute(self, q, p=None): return self.c.execute(q, p) if p else self.c.execute(q)
         @property
