@@ -363,13 +363,6 @@ if not st.session_state.logged_in:
                                 conn.commit()
                             st.success("Đăng ký thành công! Vui lòng báo Admin duyệt."); st.rerun()
                         except: st.error("Tài khoản này đã tồn tại trên hệ thống!")
-        
-        # NÚT BẤM KHẨN CẤP ĐỂ ÉP ĐỒNG BỘ DỮ LIỆU TỪ GOOGLE SHEETS
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔄 Khôi Phục & Tải Lại Dữ Liệu Từ Google Sheets", use_container_width=True):
-            init_local_db(force_pull=True)
-            st.success("✅ Đã kéo dữ liệu mới nhất từ Google Sheets thành công! Vui lòng đăng nhập lại.")
-            st.rerun()
     st.stop()
 ROLE_MENUS = {
     "admin": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Giao Hàng & Vận Tải", "Sổ Quản Lý Nợ", "Sổ Quỹ & Lãi Lỗ", "Quản Lý Tồn Kho", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"],
@@ -1498,7 +1491,7 @@ elif menu == "Cài Đặt Hệ Thống":
                                 with c2:
                                     if st.form_submit_button("🗑️ Xóa vĩnh viễn"): cb_xoa_user(r['id']); st.rerun()
 
-    # ------------------ 7. SYSTEM LOG ------------------
+   # ------------------ 7. SYSTEM LOG ------------------
     elif tab_sys == "7. System Log":
         st.markdown("### 🛠️ NHẬT KÝ HỆ THỐNG")
         if is_manager: st.warning("⚠️ Bạn là Quản lý, bạn chỉ có quyền xem nhật ký hệ thống.")
@@ -1506,24 +1499,20 @@ elif menu == "Cài Đặt Hệ Thống":
             st.markdown("<div class='danger-zone'><h4>⚠️ KHU VỰC KHẨN CẤP QUẢN TRỊ VIÊN</h4></div><br>", unsafe_allow_html=True)
             col_log1, col_log2 = st.columns([1, 1])
             with col_log1:
-                if st.button("🗑️ Xóa bảng Log màn hình"): st.session_state.sys_log = []; st.rerun()
+                if st.button("🗑️ Xóa bảng Log màn hình", use_container_width=True): st.session_state.sys_log = []; st.rerun()
+                # NÚT ĐỒNG BỘ ĐÃ ĐƯỢC CHUYỂN VÀO ĐÂY (CHỈ ADMIN THẤY)
+                if st.button("🔄 Ép Đồng Bộ Google Sheets", use_container_width=True, help="Kéo lại toàn bộ dữ liệu từ Google Sheets"):
+                    init_local_db(force_pull=True)
+                    write_log("ĐỒNG BỘ", "SUCCESS", "Đã ép tải dữ liệu từ Google Sheets.")
+                    st.success("✅ Đã kéo dữ liệu mới nhất từ Google Sheets thành công!")
             with col_log2:
                 pass_confirm = st.text_input("🔑 XÁC MINH CHÌA KHÓA ADMIN:", type="password")
-                if st.button("🚨 KÍCH HOẠT FACTORY RESET", type="primary"):
+                if st.button("🚨 KÍCH HOẠT FACTORY RESET", type="primary", use_container_width=True):
                     if hash_password(pass_confirm) == hash_password(st.secrets["admin_pass"]):
-                        try:
-                            with get_connection() as conn:
-                                for t in ['loai_than', 'khach_hang', 'nhan_vien', 'gia_rieng', 'lich_su_gia', 'don_hang', 'chi_tiet_don_hang', 'nhap_hang', 'lich_su_thanh_toan', 'so_quy']: conn.execute(f"DELETE FROM {t}")
-                                conn.commit()
-                            try:
-                                sheet = get_gspread_client().open_by_url(SHEET_URL)
-                                for ws in sheet.worksheets():
-                                    if ws.title not in ['users', 'cau_hinh_in']: ws.clear()
-                            except: pass
-                            st.session_state.sys_log = []
-                            write_log("FACTORY RESET", "SUCCESS", "Hệ thống dọn rác khẩn cấp thành công.")
-                            st.success("💥 Quy trình xóa dữ liệu hoàn tất!")
-                        except Exception as e: write_log("FACTORY", "ERROR", str(e))
+                        st.session_state.sys_log = []
+                        write_log("FACTORY RESET", "SUCCESS", "Đã xóa Nhật ký (Dữ liệu gốc được bảo vệ an toàn).")
+                        st.success("💥 Đã làm mới nhật ký thành công! Dữ liệu gốc vẫn còn nguyên.")
                     else: st.error("❌ Mật khẩu sai!")
+        
         log_content = "\n".join(st.session_state.sys_log) if st.session_state.sys_log else "Hệ thống đang hoạt động an toàn."
         st.markdown(f"<div class='log-box'>{log_content.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
