@@ -161,6 +161,7 @@ def check_and_add_column(cursor, table, col_name, col_def):
 
 @st.cache_resource
 @st.cache_resource
+@st.cache_resource
 def init_local_db():
     conn = sqlite3.connect("kho_than.db", check_same_thread=False)
     client = get_gspread_client()
@@ -170,26 +171,10 @@ def init_local_db():
         data = ws.get_all_records()
         if data:
             df = pd.DataFrame(data)
-            # Loại bỏ hoàn toàn các dòng trống (nếu tất cả ô đều trống)
-            df = df.dropna(how='all')
-            
-            # Ép kiểu an toàn cho cột id trước khi nạp
-            if 'id' in df.columns: 
-                df['id'] = pd.to_numeric(df['id'], errors='coerce')
-                df = df.dropna(subset=['id'])
-            
-            df.to_sql(ws.title, conn, if_exists='replace', index=False)
-    
-    # Dùng lệnh SQL an toàn để dọn dẹp dữ liệu rác
-    try:
-        conn.execute("DELETE FROM loai_than WHERE id IS NULL OR TRIM(ten_than) = ''")
-        conn.execute("DELETE FROM khach_hang WHERE id IS NULL OR TRIM(ten_khach) = ''")
-        conn.execute("DELETE FROM nhan_vien WHERE id IS NULL OR TRIM(ten_nhan_vien) = ''")
-        conn.commit()
-    except: 
-        # Nếu bảng chưa tồn tại thì bỏ qua lệnh xóa
-        pass
-        
+            # Chỉ nạp khi có dữ liệu thực sự
+            if not df.empty:
+                df.to_sql(ws.title, conn, if_exists='replace', index=False)
+    # ĐÃ BỎ LỆNH DELETE Ở ĐÂY ĐỂ BẢO VỆ DỮ LIỆU
     return conn
 
 def background_sync_task():
@@ -201,12 +186,16 @@ def background_sync_task():
         for table_name in tables['name']:
             if table_name == "sqlite_sequence": continue
             df = pd.read_sql_query(f"SELECT * FROM {table_name}", bg_conn)
-            for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns: df[col] = df[col].astype(str)
-            try: ws = sheet.worksheet(table_name)
-            except gspread.WorksheetNotFound: ws = sheet.add_worksheet(title=table_name, rows=100, cols=20)
-            ws.clear()
-            if not df.empty: ws.update(values=[df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist(), range_name="A1")
-    except: pass 
+            
+            # CHỈ ĐỒNG BỘ NẾU DỮ LIỆU KHÔNG BỊ RỖNG
+            if not df.empty:
+                for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns: df[col] = df[col].astype(str)
+                try: ws = sheet.worksheet(table_name)
+                except gspread.WorksheetNotFound: ws = sheet.add_worksheet(title=table_name, rows=100, cols=20)
+                ws.clear()
+                ws.update(values=[df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist(), range_name="A1")
+    except Exception as e: 
+        write_log("Sync", "ERROR", str(e))
     finally: bg_conn.close()
 
 @contextmanager
