@@ -160,7 +160,10 @@ def check_and_add_column(cursor, table, col_name, col_def):
     if col_name not in cols: cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
 
 @st.cache_resource
-@st.cache_resource
+def get_gspread_client():
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(st.secrets["gcp_service_account"]), ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"])
+    return gspread.authorize(creds)
+
 # --- BỘ ĐẾM GIỜ CHỐNG NGHẼN MẠNG GOOGLE ---
 sync_timer = None
 
