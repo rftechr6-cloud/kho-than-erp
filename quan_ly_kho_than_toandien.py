@@ -603,6 +603,7 @@ elif menu == "Lập Đơn & In Phiếu":
                 else: st.info("Giỏ hàng rỗng.")
                 st.markdown("</div>", unsafe_allow_html=True)
 # ==========================================
+# ==========================================
 # PHÂN HỆ 3: GIAO HÀNG & ĐIỀU VẬN TÀI XẾ
 # ==========================================
 elif menu == "Giao Hàng & Vận Tải":
@@ -648,37 +649,66 @@ elif menu == "Giao Hàng & Vận Tải":
                     khach_info = pd.read_sql_query(f"SELECT ten_khach FROM khach_hang WHERE id={to_int(r['khach_hang_id'])}", conn.connection)
                     ten_kh = khach_info.iloc[0]['ten_khach'] if not khach_info.empty else "Ẩn danh"
                     tx_name = r['ten_nhan_vien'] if r['ten_nhan_vien'] else "Chưa rõ"
+                    # TRÍCH XUẤT CHI TIẾT ĐƠN ĐỂ HIỂN THỊ CÁC MẶT HÀNG CHO PHÉP TRẢ
+                    ct_df = pd.read_sql_query(f"SELECT c.id, c.loai_than_id, c.so_luong, c.don_gia, l.ten_than FROM chi_tiet_don_hang c JOIN loai_than l ON c.loai_than_id = l.id WHERE c.don_hang_id={to_int(r['id'])}", conn.connection)
                     
                 with st.expander(f"🚚 Lái xe: {tx_name} | Đơn {r['ma_don_hien_thi']} - Khách: {ten_kh}", expanded=True):
                     c1, c2 = st.columns([4, 1])
                     with c1:
                         with st.form(key=f"form_done_gh_{r['id']}"):
                             tong_tien_an_toan = to_int(r['tong_tien'])
-                            st.write(f"Giá trị đơn hàng: <b>{fmt_vn(tong_tien_an_toan)} đ</b>", unsafe_allow_html=True)
+                            st.write(f"Giá trị đơn hàng gốc: **{fmt_vn(tong_tien_an_toan)} đ**", unsafe_allow_html=True)
                             
-                            tien_tra_ngay = st.number_input("Cầm tiền mặt / CK thu ngay (đ):", min_value=0, max_value=tong_tien_an_toan if tong_tien_an_toan > 0 else 1000000000, value=tong_tien_an_toan if tong_tien_an_toan > 0 else 0, step=10000, format="%d")
+                            st.markdown("---")
+                            st.write("📦 **Ghi nhận hàng trả lại / hao hụt (Nếu khách không nhận đủ):**")
+                            return_inputs = []
+                            for _, ct in ct_df.iterrows():
+                                ret_qty = st.number_input(f"Số kg trả lại - {ct['ten_than']} (Đơn gốc giao {ct['so_luong']} kg):", min_value=0.0, max_value=to_float(ct['so_luong']), value=0.0, step=10.0, key=f"ret_{r['id']}_{ct['id']}")
+                                return_inputs.append({'ct_id': ct['id'], 'loai_than_id': ct['loai_than_id'], 'ret_qty': ret_qty, 'don_gia': ct['don_gia'], 'ten_than': ct['ten_than']})
+                            
+                            st.markdown("---")
+                            tien_tra_ngay = st.number_input("Cầm tiền mặt / CK thu ngay (đ):", min_value=0.0, value=0.0, step=10000.0)
                             pt_tt = st.selectbox("Cơ chế nhận tiền:", ["Chuyển khoản", "Tiền mặt"])
                             
                             if st.form_submit_button("Xác Nhận Nghiệm Thu", type="primary"):
-                                tien_con_no_lai = tong_tien_an_toan - tien_tra_ngay
-                                is_paid = 1 if tien_con_no_lai <= 0 else 0
-                                ht_luu = pt_tt if is_paid else f"Thanh toán 1 phần ({pt_tt})"
-                                ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                                # TÍNH TOÁN GIẢM TRỪ VÀ TRẢ LẠI KHO
+                                tien_giam_tru = sum(item['ret_qty'] * item['don_gia'] for item in return_inputs)
+                                tong_tien_moi = tong_tien_an_toan - tien_giam_tru
                                 
-                                with get_connection() as c_update:
-                                    cur = c_update.cursor()
-                                    cur.execute("UPDATE don_hang SET trang_thai_giao='Đã hoàn thành', da_thanh_toan=?, hinh_thuc_thanh_toan=?, tien_da_tra=?, tien_con_no=? WHERE id=?", (is_paid, ht_luu, tien_tra_ngay, tien_con_no_lai, to_int(r['id'])))
-                                    if tien_tra_ngay > 0: 
-                                        lsid = get_next_id('lich_su_thanh_toan', cur)
-                                        cur.execute("INSERT INTO lich_su_thanh_toan (id, don_hang_id, so_tien_tra, hinh_thuc, ngay_tra, ghi_chu, nguoi_tao) VALUES (?,?,?,?,?,?,?)", (lsid, to_int(r['id']), tien_tra_ngay, pt_tt, ts, "Thu tiền hạ hàng", st.session_state.current_user))
-                                    c_update.commit()
-                                
-                                # KÍCH HOẠT BOT ZALO
-                                send_zalo_notify(f"✅ [GIAO THÀNH CÔNG]\n- Mã đơn: {r['ma_don_hien_thi']}\n- Lái xe: {tx_name}\n- Đã thu: {fmt_vn(tien_tra_ngay)} VNĐ\n- Còn nợ: {fmt_vn(tien_con_no_lai)} VNĐ")
-                                st.success("Nghiệm thu đơn hoàn tất!"); st.rerun()
+                                if tien_tra_ngay > tong_tien_moi:
+                                    st.error(f"Lỗi: Tiền thu ngay ({fmt_vn(tien_tra_ngay)} đ) không được lớn hơn tổng tiền sau khi trừ hàng hoàn ({fmt_vn(tong_tien_moi)} đ)!")
+                                else:
+                                    tien_con_no_lai = tong_tien_moi - tien_tra_ngay
+                                    is_paid = 1 if tien_con_no_lai <= 0 else 0
+                                    ht_luu = pt_tt if is_paid else f"Thanh toán 1 phần ({pt_tt})"
+                                    ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                                    
+                                    with get_connection() as c_update:
+                                        cur = c_update.cursor()
+                                        
+                                        # Cập nhật số lượng hoàn trả vào kho bãi
+                                        for item in return_inputs:
+                                            if item['ret_qty'] > 0:
+                                                cur.execute("UPDATE chi_tiet_don_hang SET so_luong = so_luong - ? WHERE id=?", (item['ret_qty'], item['ct_id']))
+                                                cur.execute("UPDATE loai_than SET ton_kho = ton_kho + ? WHERE id=?", (item['ret_qty'], item['loai_than_id']))
+                                        
+                                        # Cập nhật tiền mới của đơn hàng
+                                        cur.execute("UPDATE don_hang SET trang_thai_giao='Đã hoàn thành', tong_tien=?, da_thanh_toan=?, hinh_thuc_thanh_toan=?, tien_da_tra=?, tien_con_no=? WHERE id=?", (tong_tien_moi, is_paid, ht_luu, tien_tra_ngay, tien_con_no_lai, to_int(r['id'])))
+                                        
+                                        if tien_tra_ngay > 0: 
+                                            lsid = get_next_id('lich_su_thanh_toan', cur)
+                                            cur.execute("INSERT INTO lich_su_thanh_toan (id, don_hang_id, so_tien_tra, hinh_thuc, ngay_tra, ghi_chu, nguoi_tao) VALUES (?,?,?,?,?,?,?)", (lsid, to_int(r['id']), tien_tra_ngay, pt_tt, ts, "Thu tiền hạ hàng", st.session_state.current_user))
+                                        c_update.commit()
+                                    
+                                    # KÍCH HOẠT BOT ZALO GỬI BÁO CÁO CẬP NHẬT
+                                    hoan_msg = f"\n- Khách trả lại hàng: Trừ {fmt_vn(tien_giam_tru)} VNĐ" if tien_giam_tru > 0 else ""
+                                    try:
+                                        send_zalo_notify(f"✅ [GIAO THÀNH CÔNG]\n- Mã đơn: {r['ma_don_hien_thi']}\n- Lái xe: {tx_name}\n- Tổng tiền (đã trừ hoàn trả): {fmt_vn(tong_tien_moi)} VNĐ{hoan_msg}\n- Đã thu: {fmt_vn(tien_tra_ngay)} VNĐ\n- Còn nợ: {fmt_vn(tien_con_no_lai)} VNĐ")
+                                    except:
+                                        pass
+                                    st.success("Nghiệm thu đơn hoàn tất!"); st.rerun()
                     with c2: 
                         if st.button("🗑️ Hủy Đơn", key=f"huy_don_dang_{r['id']}"): cb_huy_don(to_int(r['id'])); st.rerun()
-
 # ==========================================
 # PHÂN HỆ MỚI: SỔ QUỸ & LÃI LỖ (P&L)
 # ==========================================
@@ -854,13 +884,17 @@ elif menu == "Quản Lý Tồn Kho":
         st.download_button("📥 XUẤT BÁO CÁO TỒN KHO (EXCEL)", data=df_tonghop.to_csv(index=False, encoding='utf-8-sig'), file_name=f"BaoCao_TonKho_{today_str}.csv", mime="text/csv", type="primary")
 
 # ==========================================
-# PHÂN HỆ 5: LỊCH SỬ ĐƠN HÀNG
+# ==========================================
+# PHÂN HỆ 5: LỊCH SỬ ĐƠN HÀNG & HOÀN TRẢ
 # ==========================================
 elif menu == "Lịch Sử Đơn Hàng":
-    st.markdown("### 🗂️ Tra Cứu Lịch Sử Giao Hàng")
+    st.markdown("### 🗂️ Tra Cứu Lịch Sử & Xử Lý Hoàn Trả")
     has_high_clearance = (st.session_state.user_role in ['admin', 'manager'])
-    if has_high_clearance: tab_tongquan, tab_chitiet = st.tabs(["📋 Tổng Quan Đơn Hàng (Chung)", "📊 Sổ Cái Bán Hàng Chi Tiết (Bảo mật)"])
-    else: tab_tongquan = st.container()
+    
+    if has_high_clearance: 
+        tab_tongquan, tab_hoantra, tab_chitiet = st.tabs(["📋 Tổng Quan Đơn Hàng", "🔄 Xử Lý Khách Trả Hàng", "📊 Sổ Cái Bán Hàng Chi Tiết"])
+    else: 
+        tab_tongquan = st.container()
         
     with tab_tongquan:
         st.markdown("#### Nhật ký các chuyến xe đã giao")
@@ -874,6 +908,71 @@ elif menu == "Lịch Sử Đơn Hàng":
         else: st.info("Chưa có chuyến xe nào hoàn thành.")
 
     if has_high_clearance:
+        # === TAB MỚI: XỬ LÝ HOÀN TRẢ SAU KHI GIAO XONG ===
+        with tab_hoantra:
+            st.markdown("#### 📦 Nhập lại kho hàng hoàn (Đơn đã hoàn thành)")
+            st.info("💡 Nếu khách phàn nàn và yêu cầu trả lại hàng sau khi đã giao xong, dùng chức năng này để thu hồi hàng về bãi và tự động trừ giảm doanh thu/công nợ.")
+            
+            with get_connection() as conn:
+                df_done = pd.read_sql_query('''SELECT dh.id, dh.ma_don_hien_thi, kh.ten_khach, dh.tong_tien, dh.tien_da_tra, dh.tien_con_no 
+                                               FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id 
+                                               WHERE dh.trang_thai_giao = 'Đã hoàn thành' ORDER BY dh.id DESC LIMIT 100''', conn.connection)
+            
+            if df_done.empty:
+                st.write("Chưa có hóa đơn nào hoàn thành để xử lý trả hàng.")
+            else:
+                don_dict = dict(zip(df_done['id'], df_done['ma_don_hien_thi'] + " - " + df_done['ten_khach']))
+                id_don_hoan = st.selectbox("1. Chọn hóa đơn khách muốn trả hàng:", options=list(don_dict.keys()), format_func=lambda x: don_dict.get(x))
+                
+                if id_don_hoan:
+                    with get_connection() as conn:
+                        ct_hoan = pd.read_sql_query(f"SELECT c.id, c.loai_than_id, c.so_luong, c.don_gia, l.ten_than FROM chi_tiet_don_hang c JOIN loai_than l ON c.loai_than_id = l.id WHERE c.don_hang_id={to_int(id_don_hoan)}", conn.connection)
+                    
+                    with st.form("form_hoan_tra_sau"):
+                        st.write("2. **Ghi nhận số lượng (kg) khách thực tế trả về bãi:**")
+                        return_inputs_ht = []
+                        for _, ct in ct_hoan.iterrows():
+                            ret_qty = st.number_input(f"Thu hồi - {ct['ten_than']} (Đã mua: {ct['so_luong']} kg):", min_value=0.0, max_value=to_float(ct['so_luong']), value=0.0, step=10.0, key=f"hoan_{id_don_hoan}_{ct['id']}")
+                            return_inputs_ht.append({'ct_id': ct['id'], 'loai_than_id': ct['loai_than_id'], 'ret_qty': ret_qty, 'don_gia': ct['don_gia'], 'ten_than': ct['ten_than']})
+                        
+                        ghi_chu_hoan = st.text_input("3. Lý do trả hàng (ghi chú lại để nhắc nhở bãi):")
+                        
+                        if st.form_submit_button("XÁC NHẬN NHẬP KHO & TRỪ CÔNG NỢ", type="primary"):
+                            tien_giam_tru = sum(item['ret_qty'] * item['don_gia'] for item in return_inputs_ht)
+                            if tien_giam_tru <= 0:
+                                st.error("Vui lòng nhập số lượng lớn hơn 0 để tiến hành hoàn trả.")
+                            else:
+                                don_info = df_done[df_done['id'] == id_don_hoan].iloc[0]
+                                tong_tien_cu = to_float(don_info['tong_tien'])
+                                tien_da_tra_cu = to_float(don_info['tien_da_tra'])
+                                
+                                # Tính toán lại số liệu
+                                tong_tien_moi = tong_tien_cu - tien_giam_tru
+                                tien_con_no_moi = tong_tien_moi - tien_da_tra_cu
+                                da_thanh_toan_moi = 1 if tien_con_no_moi <= 0 else 0
+                                
+                                with get_connection() as c_update:
+                                    cur = c_update.cursor()
+                                    for item in return_inputs_ht:
+                                        if item['ret_qty'] > 0:
+                                            # Trừ số lượng xuất trong hóa đơn, cộng lại kho bãi
+                                            cur.execute("UPDATE chi_tiet_don_hang SET so_luong = so_luong - ? WHERE id=?", (item['ret_qty'], item['ct_id']))
+                                            cur.execute("UPDATE loai_than SET ton_kho = ton_kho + ? WHERE id=?", (item['ret_qty'], item['loai_than_id']))
+                                    
+                                    # Cập nhật hóa đơn
+                                    cur.execute("UPDATE don_hang SET tong_tien=?, tien_con_no=?, da_thanh_toan=?, ghi_chu = ghi_chu || ? WHERE id=?", 
+                                                (tong_tien_moi, tien_con_no_moi, da_thanh_toan_moi, f"\n[Hoàn trả: {ghi_chu_hoan} - Giảm {fmt_vn(tien_giam_tru)}đ]", to_int(id_don_hoan)))
+                                    c_update.commit()
+                                
+                                # Gửi thông báo khẩn qua Telegram
+                                try:
+                                    send_tele_notify(f"⚠️ [CẢNH BÁO TRẢ HÀNG]\n- Mã đơn: {don_info['ma_don_hien_thi']}\n- Khách: {don_info['ten_khach']}\n- Giá trị bị giảm trừ: {fmt_vn(tien_giam_tru)} VNĐ\n- Lý do: {ghi_chu_hoan}\n- Người duyệt: {st.session_state.current_user}")
+                                except: pass
+                                
+                                st.success(f"Thành công! Đã thu hồi hàng về bãi và trừ lùi {fmt_vn(tien_giam_tru)}đ vào hóa đơn.")
+                                st.rerun()
+
+        # === TAB CHI TIẾT SỔ CÁI MẶT HÀNG ===
         with tab_chitiet:
             st.markdown("#### Báo cáo chi tiết từng mặt hàng xuất kho")
             st.caption("🔒 Khu vực dữ liệu bảo mật: Tổng hợp số lượng, đơn giá, nợ đọng theo từng chủng loại và người giao xe.")
@@ -924,7 +1023,6 @@ elif menu == "Lịch Sử Đơn Hàng":
                     </div>
                 """, unsafe_allow_html=True)
                 st.download_button("📥 XUẤT SỔ CÁI BÁN HÀNG CHI TIẾT (EXCEL)", data=df_filtered.to_csv(index=False, encoding='utf-8-sig'), file_name=f"SoCai_BanHang_ChiTiet_{today_str}.csv", mime="text/csv", type="primary")
-
 # ==========================================
 # PHÂN HỆ 6: CÀI ĐẶT HỆ THỐNG - BẢN MASTER/DETAIL MỚI
 # ==========================================
