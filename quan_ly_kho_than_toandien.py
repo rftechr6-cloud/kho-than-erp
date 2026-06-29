@@ -885,6 +885,7 @@ elif menu == "Quản Lý Tồn Kho":
 
 # ==========================================
 # ==========================================
+# ==========================================
 # PHÂN HỆ 5: LỊCH SỬ ĐƠN HÀNG & HOÀN TRẢ
 # ==========================================
 elif menu == "Lịch Sử Đơn Hàng":
@@ -899,7 +900,18 @@ elif menu == "Lịch Sử Đơn Hàng":
     with tab_tongquan:
         st.markdown("#### Nhật ký các chuyến xe đã giao")
         with get_connection() as conn: 
-            df_his = pd.read_sql_query('''SELECT dh.ma_don_hien_thi as "Mã Đơn", dh.thoi_gian_tao as "Ngày Giờ", kh.ten_khach as "Khách Hàng", nv.ten_nhan_vien as "Tài Xế", dh.tong_tien as "Tổng Tiền", dh.tien_con_no as "Nợ Lại", dh.nguoi_tao as "Người Lập" FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id WHERE dh.trang_thai_giao = 'Đã hoàn thành' ORDER BY dh.id DESC''', conn.connection)
+            # Đã bổ sung thêm cột Trạng Thái báo nợ / thu đủ
+            df_his = pd.read_sql_query('''
+                SELECT 
+                    dh.ma_don_hien_thi as "Mã Đơn", dh.thoi_gian_tao as "Ngày Giờ", kh.ten_khach as "Khách Hàng", 
+                    nv.ten_nhan_vien as "Tài Xế", dh.tong_tien as "Tổng Tiền", dh.tien_con_no as "Nợ Lại",
+                    CASE WHEN dh.tien_con_no <= 0 THEN '✅ Đã thu đủ' ELSE '⚠️ Còn nợ' END as "Trạng Thái",
+                    dh.nguoi_tao as "Người Lập" 
+                FROM don_hang dh 
+                JOIN khach_hang kh ON dh.khach_hang_id = kh.id 
+                LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id 
+                WHERE dh.trang_thai_giao = 'Đã hoàn thành' ORDER BY dh.id DESC
+            ''', conn.connection)
         
         if not df_his.empty:
             for col in ['Tổng Tiền', 'Nợ Lại']: df_his[col] = df_his[col].apply(to_float)
@@ -908,7 +920,7 @@ elif menu == "Lịch Sử Đơn Hàng":
         else: st.info("Chưa có chuyến xe nào hoàn thành.")
 
     if has_high_clearance:
-        # === TAB MỚI: XỬ LÝ HOÀN TRẢ SAU KHI GIAO XONG ===
+        # === TAB: XỬ LÝ HOÀN TRẢ SAU KHI GIAO XONG ===
         with tab_hoantra:
             st.markdown("#### 📦 Nhập lại kho hàng hoàn (Đơn đã hoàn thành)")
             st.info("💡 Nếu khách phàn nàn và yêu cầu trả lại hàng sau khi đã giao xong, dùng chức năng này để thu hồi hàng về bãi và tự động trừ giảm doanh thu/công nợ.")
@@ -926,7 +938,8 @@ elif menu == "Lịch Sử Đơn Hàng":
                 
                 if id_don_hoan:
                     with get_connection() as conn:
-                        ct_hoan = pd.read_sql_query(f"SELECT c.id, c.loai_than_id, c.so_luong, c.don_gia, l.ten_than FROM chi_tiet_don_hang c JOIN loai_than l ON c.loai_than_id = l.id WHERE c.don_hang_id={to_int(id_don_hoan)}", conn.connection)
+                        # Đã dùng LEFT JOIN tránh lỗi mất hàng
+                        ct_hoan = pd.read_sql_query(f"SELECT c.id, c.loai_than_id, c.so_luong, c.don_gia, COALESCE(l.ten_than, 'Mặt hàng đã bị xóa') as ten_than FROM chi_tiet_don_hang c LEFT JOIN loai_than l ON c.loai_than_id = l.id WHERE c.don_hang_id={to_int(id_don_hoan)}", conn.connection)
                     
                     with st.form("form_hoan_tra_sau"):
                         st.write("2. **Ghi nhận số lượng (kg) khách thực tế trả về bãi:**")
@@ -974,14 +987,22 @@ elif menu == "Lịch Sử Đơn Hàng":
             st.caption("🔒 Khu vực dữ liệu bảo mật: Tổng hợp số lượng, đơn giá, nợ đọng theo từng chủng loại và người giao xe.")
             
             with get_connection() as conn:
+                # Cấu trúc LEFT JOIN khép kín: Dù xóa than hay xóa tài xế, lịch sử sổ cái vẫn không bị biến mất!
                 df_detail = pd.read_sql_query('''
                     SELECT 
-                        dh.ngay_ban as "Ngày Bán", dh.ma_don_hien_thi as "Mã Hóa Đơn", kh.ten_khach as "Khách Hàng", nv.ten_nhan_vien as "Người Giao",
-                        lt.ten_than as "Loại Than", ctdh.so_luong as "Số Lượng (kg)", ctdh.don_gia as "Đơn Giá (đ)",
-                        (ctdh.so_luong * ctdh.don_gia) as "Thành Tiền (đ)", dh.tien_con_no as "Nợ Lại (đ)",
-                        CASE WHEN dh.tien_con_no <= 0 THEN '✅ Hoàn thành' ELSE '⚠️ Báo nợ' END as "Trạng Thái"
-                    FROM don_hang dh JOIN chi_tiet_don_hang ctdh ON dh.id = ctdh.don_hang_id JOIN khach_hang kh ON dh.khach_hang_id = kh.id
-                    JOIN loai_than lt ON ctdh.loai_than_id = lt.id LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id
+                        dh.ngay_ban as "Ngày Bán", dh.ma_don_hien_thi as "Mã Hóa Đơn", kh.ten_khach as "Khách Hàng", 
+                        COALESCE(nv.ten_nhan_vien, 'Chưa phân xe') as "Người Giao",
+                        COALESCE(lt.ten_than, 'Mặt hàng đã xóa') as "Loại Than", 
+                        COALESCE(ctdh.so_luong, 0) as "Số Lượng (kg)", 
+                        COALESCE(ctdh.don_gia, 0) as "Đơn Giá (đ)",
+                        (COALESCE(ctdh.so_luong, 0) * COALESCE(ctdh.don_gia, 0)) as "Thành Tiền (đ)", 
+                        dh.tien_con_no as "Nợ Lại (đ)",
+                        CASE WHEN dh.tien_con_no <= 0 THEN '✅ Đã thu đủ' ELSE '⚠️ Đang báo nợ' END as "Trạng Thái"
+                    FROM don_hang dh 
+                    LEFT JOIN chi_tiet_don_hang ctdh ON dh.id = ctdh.don_hang_id 
+                    JOIN khach_hang kh ON dh.khach_hang_id = kh.id
+                    LEFT JOIN loai_than lt ON ctdh.loai_than_id = lt.id 
+                    LEFT JOIN nhan_vien nv ON dh.nhan_vien_id = nv.id
                     WHERE dh.trang_thai_giao = 'Đã hoàn thành' ORDER BY dh.thoi_gian_tao DESC
                 ''', conn.connection)
             
@@ -989,7 +1010,7 @@ elif menu == "Lịch Sử Đơn Hàng":
                 c1, c2, c3 = st.columns(3)
                 with c1: f_khach = st.selectbox("Lọc theo Khách Hàng:", ["Tất cả"] + list(df_detail['Khách Hàng'].unique()))
                 with c2: f_than = st.selectbox("Lọc theo Chủng Loại:", ["Tất cả"] + list(df_detail['Loại Than'].unique()))
-                with c3: f_tt = st.selectbox("Lọc Trạng Thái Nợ:", ["Tất cả", "✅ Hoàn thành", "⚠️ Báo nợ"])
+                with c3: f_tt = st.selectbox("Lọc Trạng Thái Nợ:", ["Tất cả", "✅ Đã thu đủ", "⚠️ Đang báo nợ"])
                     
                 df_filtered = df_detail.copy()
                 if f_khach != "Tất cả": df_filtered = df_filtered[df_filtered['Khách Hàng'] == f_khach]
@@ -997,7 +1018,6 @@ elif menu == "Lịch Sử Đơn Hàng":
                 if f_tt != "Tất cả": df_filtered = df_filtered[df_filtered['Trạng Thái'] == f_tt]
 
                 for col in ['Số Lượng (kg)', 'Đơn Giá (đ)', 'Thành Tiền (đ)', 'Nợ Lại (đ)']: df_filtered[col] = df_filtered[col].apply(to_float)
-                df_filtered['Người Giao'] = df_filtered['Người Giao'].fillna('Chưa phân xe')
                     
                 st.dataframe(df_filtered.style.format({
                     'Số Lượng (kg)': lambda x: fmt_vn(x), 'Đơn Giá (đ)': lambda x: fmt_vn(x), 
@@ -1020,7 +1040,7 @@ elif menu == "Lịch Sử Đơn Hàng":
                 """, unsafe_allow_html=True)
                 st.download_button("📥 XUẤT SỔ CÁI BÁN HÀNG CHI TIẾT (EXCEL)", data=df_filtered.to_csv(index=False, encoding='utf-8-sig'), file_name=f"SoCai_BanHang_ChiTiet_{today_str}.csv", mime="text/csv", type="primary")
             else:
-                st.info("Bảng dữ liệu đang trống. Khi có đơn hàng được giao hoàn thành, hệ thống sẽ tự động thống kê sổ cái chi tiết tại đây.")
+                st.info("📭 Bảng dữ liệu đang trống. Khi có đơn hàng được giao hoàn thành, hệ thống sẽ tự động thống kê sổ cái chi tiết tại đây.")
 # ==========================================
 # PHÂN HỆ 6: CÀI ĐẶT HỆ THỐNG - BẢN MASTER/DETAIL MỚI
 # ==========================================
