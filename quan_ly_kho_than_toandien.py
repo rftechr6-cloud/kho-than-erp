@@ -510,7 +510,75 @@ if menu == "Thống Kê (HQ)":
         with ch1: st.plotly_chart(px.pie(df_flat.groupby('ten_than')['so_luong'].sum().reset_index(), values='so_luong', names='ten_than', hole=0.4, title="Tỷ trọng than xuất kho"), use_container_width=True)
         with ch2: st.plotly_chart(px.pie(df_flat.groupby('ten_khach')['loi_nhuan'].sum().reset_index(), values='loi_nhuan', names='ten_khach', hole=0.4, title="Lợi nhuận theo khách hàng"), use_container_width=True)
     if auto_refresh: time.sleep(30); st.rerun()
+    # ==========================================
+    # MODULE THỐNG KÊ: CHỈ SỐ TĂNG TRƯỞNG KHÁCH HÀNG MỚI
+    # ==========================================
+    st.markdown("### 🌟 CHỈ SỐ TĂNG TRƯỞNG & MỞ RỘNG THỊ TRƯỜNG")
+    
+    # Lấy tháng hiện tại theo múi giờ Việt Nam
+    current_month_str = (datetime.now(timezone.utc) + timedelta(hours=7)).strftime('%Y-%m')
+    
+    with get_connection() as conn:
+        # Thuật toán: Tìm khách có "Ngày mua lần đầu tiên" rơi vào tháng hiện tại
+        query_new_cus = '''
+            WITH KhachHangDauTien AS (
+                SELECT khach_hang_id, MIN(ngay_ban) as ngay_mua_dau
+                FROM don_hang
+                GROUP BY khach_hang_id
+            )
+            SELECT 
+                dh.khach_hang_id, 
+                kh.ten_khach, 
+                kh.sdt,
+                kh.dia_chi,
+                SUM(dh.tong_tien) as doanh_thu_mang_lai,
+                khdt.ngay_mua_dau
+            FROM don_hang dh
+            JOIN KhachHangDauTien khdt ON dh.khach_hang_id = khdt.khach_hang_id
+            JOIN khach_hang kh ON dh.khach_hang_id = kh.id
+            WHERE strftime('%Y-%m', khdt.ngay_mua_dau) = ?
+              AND strftime('%Y-%m', dh.ngay_ban) = ?
+            GROUP BY dh.khach_hang_id, kh.ten_khach, kh.sdt, kh.dia_chi, khdt.ngay_mua_dau
+        '''
+        df_new_cus = pd.read_sql_query(query_new_cus, conn.connection, params=(current_month_str, current_month_str))
+        
+    # Tính toán chỉ số hiển thị
+    so_khach_moi = len(df_new_cus)
+    doanh_thu_moi = df_new_cus['doanh_thu_mang_lai'].sum() if not df_new_cus.empty else 0
+    
+    # Hiển thị giao diện Thẻ báo cáo (Dashboard Card)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #0ea5e9, #2563eb); padding: 20px; border-radius: 10px; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+            <h4 style='margin:0; color: #e0f2fe;'>TỔNG KHÁCH HÀNG MỚI (THÁNG NÀY)</h4>
+            <h1 style='margin:0; font-size: 36px;'>+{so_khach_moi} <span style='font-size:16px; font-weight:normal;'>đối tác</span></h1>
+        </div>
+        """, unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #10b981, #059669); padding: 20px; border-radius: 10px; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+            <h4 style='margin:0; color: #d1fae5;'>DOANH THU TỪ TỆP KHÁCH MỚI</h4>
+            <h1 style='margin:0; font-size: 36px;'>{fmt_vn(doanh_thu_moi)} <span style='font-size:16px; font-weight:normal;'>VNĐ</span></h1>
+        </div>
+        """, unsafe_allow_html=True)
 
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Danh sách CSKH
+    if not df_new_cus.empty:
+        st.markdown("#### 📋 Danh sách Khách hàng mới cần chăm sóc (CSKH)")
+        st.info("💡 Đây là những đối tác vừa chốt đơn lần đầu trong tháng này. Hãy lưu ý nhắc nhở bộ phận Sale / CSKH gọi điện hỏi thăm chất lượng than để biến họ thành khách quen.")
+        
+        df_display = df_new_cus[['ten_khach', 'sdt', 'dia_chi', 'ngay_mua_dau', 'doanh_thu_mang_lai']].copy()
+        df_display.columns = ['Tên Khách Hàng', 'Số Điện Thoại', 'Địa Chỉ', 'Ngày Ký Đơn Đầu', 'Doanh Thu Mang Lại (đ)']
+        for col in ['Doanh Thu Mang Lại (đ)']: df_display[col] = df_display[col].apply(to_float)
+        
+        st.dataframe(df_display.style.format({
+            'Doanh Thu Mang Lại (đ)': lambda x: fmt_vn(x)
+        }), hide_index=True, use_container_width=True)
+    else:
+        st.warning("⚠️ Báo động đỏ: Tháng này bãi xe chưa khai thác được khách hàng mới nào. Cần thúc đẩy bộ phận Kinh doanh chạy thị trường!")
 # ==========================================
 # ==========================================
 # ==========================================
