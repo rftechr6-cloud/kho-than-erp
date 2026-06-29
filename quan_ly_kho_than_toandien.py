@@ -161,39 +161,49 @@ def check_and_add_column(cursor, table, col_name, col_def):
 
 @st.cache_resource
 def get_gspread_client():
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(st.secrets["gcp_service_account"]), ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"])
-    return gspread.authorize(creds)
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds_dict = json.loads(st.secrets["google_key"])
+    creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+    return gspread.authorize(ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope))
 
-# --- BỘ ĐẾM GIỜ CHỐNG NGHẼN MẠNG GOOGLE ---
-sync_timer = None
+def check_and_add_column(cursor, table, col_name, col_def):
+    cursor.execute(f"PRAGMA table_info({table})")
+    cols = [col[1] for col in cursor.fetchall()]
+    if col_name not in cols: cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
 
-@st.cache_resource
-def init_local_db():
+# BỎ HOÀN TOÀN @st.cache_resource ĐỂ CHỐNG KẸT DỮ LIỆU KHI REBOOT
+def init_local_db(force_pull=False):
     conn = sqlite3.connect("kho_than.db", check_same_thread=False)
-    client = get_gspread_client()
-    sheet = client.open_by_url(SHEET_URL)
     
-    for ws in sheet.worksheets():
-        data = ws.get_all_records()
-        if data:
-            df = pd.DataFrame(data)
-            # Quét sạch các dòng rác (trống) do quá trình đè dữ liệu sinh ra
-            df = df.replace('', pd.NA).dropna(how='all')
-            
-            if 'id' in df.columns: 
-                df['id'] = pd.to_numeric(df['id'], errors='coerce')
-                df = df.dropna(subset=['id'])
-                
-            if not df.empty:
-                df.to_sql(ws.title, conn, if_exists='replace', index=False)
-    
+    # Tối ưu: Nếu SQLite đã có dữ liệu, không cần kéo lại từ GSheets (trừ khi bạn bấm nút Ép buộc)
+    if not force_pull:
+        try:
+            check = pd.read_sql_query("SELECT COUNT(*) as cnt FROM users", conn)
+            if check.iloc[0]['cnt'] > 0: return conn
+        except: pass
+        
+    # Kéo dữ liệu tươi từ Google Sheets
     try:
-        conn.execute("DELETE FROM loai_than WHERE id IS NULL OR TRIM(ten_than) = ''")
-        conn.execute("DELETE FROM khach_hang WHERE id IS NULL OR TRIM(ten_khach) = ''")
-        conn.execute("DELETE FROM nhan_vien WHERE id IS NULL OR TRIM(ten_nhan_vien) = ''")
-        conn.commit()
+        client = get_gspread_client()
+        sheet = client.open_by_url(SHEET_URL)
+        for ws in sheet.worksheets():
+            data = ws.get_all_records()
+            if data:
+                df = pd.DataFrame(data)
+                df = df.replace('', pd.NA).dropna(how='all')
+                if 'id' in df.columns: 
+                    df['id'] = pd.to_numeric(df['id'], errors='coerce')
+                    df = df.dropna(subset=['id'])
+                    df['id'] = df['id'].astype(int) # FIX LỖI 1.0 THÀNH SỐ NGUYÊN 1
+                if not df.empty:
+                    df.to_sql(ws.title.strip(), conn, if_exists='replace', index=False)
     except: pass
     return conn
+
+init_local_db()
+
+# --- BỘ ĐẾM GIỜ CHỐNG QUÁ TẢI GOOGLE (DEBOUNCER) ---
+sync_timer = None
 
 def background_sync_task():
     try:
@@ -206,30 +216,25 @@ def background_sync_task():
             if table_name == "sqlite_sequence": continue
             df = pd.read_sql_query(f"SELECT * FROM {table_name}", bg_conn)
             
-            # BẢO VỆ TỐI THƯỢNG: Nếu bảng trống, tuyệt đối không đồng bộ để chống mất dữ liệu
+            # BẢO VỆ TỐI THƯỢNG: TUYỆT ĐỐI KHÔNG XÓA GOOGLE SHEETS NẾU DỮ LIỆU TRỐNG
             if df.empty: continue 
             
-            for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns: 
-                df[col] = df[col].astype(str)
-                
+            for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns: df[col] = df[col].astype(str)
             try: ws = sheet.worksheet(table_name)
             except gspread.WorksheetNotFound: ws = sheet.add_worksheet(title=table_name, rows=100, cols=20)
             
-            # TUYỆT CHIÊU: Chèn thêm 30 dòng trống để đè lên rác cũ (thay thế lệnh ws.clear() nguy hiểm)
+            # CHÈN ĐÈ DỮ LIỆU THAY VÌ DÙNG LỆNH CLEAR GÂY MẤT DỮ LIỆU
             values = [df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist()
             empty_row = [""] * len(df.columns)
-            values.extend([empty_row] * 30)
-            
-            # Cập nhật an toàn
+            values.extend([empty_row] * 20) # Chèn 20 dòng trắng để xóa rác tự nhiên
             ws.update(values=values, range_name="A1")
-            time.sleep(1) # Nghỉ 1s tránh Google chặn API
+            time.sleep(1) # Chống nghẽn API Google
     except: pass 
     finally: bg_conn.close()
 
 def trigger_sync():
     global sync_timer
     if sync_timer is not None: sync_timer.cancel()
-    # Gom các thao tác lại, đợi 3 giây sau cú click cuối cùng mới đồng bộ
     sync_timer = threading.Timer(3.0, background_sync_task)
     sync_timer.daemon = True
     sync_timer.start()
@@ -241,13 +246,14 @@ def get_connection():
         def __init__(self, c): self.c = c
         def commit(self):
             self.c.commit()
-            trigger_sync() # Gọi con robot gom dữ liệu thông minh
+            trigger_sync() # Đồng bộ sau 3s khi lưu xong
         def cursor(self): return self.c.cursor()
         def execute(self, q, p=None): return self.c.execute(q, p) if p else self.c.execute(q)
         @property
         def connection(self): return self.c
     try: yield ConnectionWrapper(conn)
     finally: conn.close()
+
 def get_next_id(table, cursor):
     try:
         cursor.execute(f"SELECT MAX(id) FROM {table}")
@@ -261,7 +267,7 @@ def sinh_ma_don_hang_theo_ngay(date_str):
         return f"{date_str.replace('-', '')}-{count + 1:03d}"
 
 def init_database():
-    # 🛡️ BƯỚC BẢO VỆ 3: DÙNG LỆNH KẾT NỐI RIÊNG LẺ. TUYỆT ĐỐI KHÔNG DÙNG get_connection() Ở ĐÂY ĐỂ TRÁNH KÍCH HOẠT SYNC KHI KHỞI ĐỘNG
+    # Dùng kết nối nguyên thủy để khởi tạo DB không kích hoạt đồng bộ (chống xóa dữ liệu oan)
     conn = sqlite3.connect("kho_than.db", check_same_thread=False)
     cursor = conn.cursor()
     
@@ -312,7 +318,7 @@ def init_database():
     
     cursor.execute('''CREATE TABLE IF NOT EXISTS so_quy (id INTEGER PRIMARY KEY, ngay DATE, thoi_gian TIMESTAMP, loai_phieu VARCHAR(50), so_tien DOUBLE, hang_muc VARCHAR(255), nguoi_tao VARCHAR(255), ghi_chu TEXT)''')
     conn.commit()
-    conn.close() # Đóng kết nối an toàn
+    conn.close()
 
 init_database()
 
@@ -357,8 +363,14 @@ if not st.session_state.logged_in:
                                 conn.commit()
                             st.success("Đăng ký thành công! Vui lòng báo Admin duyệt."); st.rerun()
                         except: st.error("Tài khoản này đã tồn tại trên hệ thống!")
+        
+        # NÚT BẤM KHẨN CẤP ĐỂ ÉP ĐỒNG BỘ DỮ LIỆU TỪ GOOGLE SHEETS
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 Khôi Phục & Tải Lại Dữ Liệu Từ Google Sheets", use_container_width=True):
+            init_local_db(force_pull=True)
+            st.success("✅ Đã kéo dữ liệu mới nhất từ Google Sheets thành công! Vui lòng đăng nhập lại.")
+            st.rerun()
     st.stop()
-
 ROLE_MENUS = {
     "admin": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Giao Hàng & Vận Tải", "Sổ Quản Lý Nợ", "Sổ Quỹ & Lãi Lỗ", "Quản Lý Tồn Kho", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"],
     "manager": ["Thống Kê (HQ)", "Lập Đơn & In Phiếu", "Sổ Quản Lý Nợ", "Sổ Quỹ & Lãi Lỗ", "Quản Lý Tồn Kho", "Lịch Sử Đơn Hàng", "Cài Đặt Hệ Thống"], 
