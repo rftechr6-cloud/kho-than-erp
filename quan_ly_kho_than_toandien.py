@@ -230,9 +230,13 @@ def init_database():
         if not cursor.fetchone(): 
             uid = get_next_id('users', cursor)
             cursor.execute("INSERT INTO users (id, username, password, role, status) VALUES (?, ?, ?, 'admin', 'Đã duyệt')", (uid, 'admin', hash_password(st.secrets["admin_pass"])))
-        cursor.execute('''CREATE TABLE IF NOT EXISTS loai_than (id INTEGER PRIMARY KEY, ten_than VARCHAR(255) UNIQUE, gia_nhap_mac_dinh DOUBLE, gia_mac_dinh DOUBLE, ton_kho DOUBLE, nguoi_tao VARCHAR(255))''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS khach_hang (id INTEGER PRIMARY KEY, ma_khach_hang VARCHAR(50) UNIQUE, ten_khach VARCHAR(255) UNIQUE, sdt VARCHAR(50), dia_chi TEXT, khu_vuc VARCHAR(255), link_google_maps TEXT, nguoi_tao VARCHAR(255))''')
         
+        # BẢNG LOẠI THAN ĐƯỢC NÂNG CẤP ĐƠN VỊ TÍNH VÀ QUY CÁCH (HỆ SỐ KG)
+        cursor.execute('''CREATE TABLE IF NOT EXISTS loai_than (id INTEGER PRIMARY KEY, ten_than VARCHAR(255) UNIQUE, gia_nhap_mac_dinh DOUBLE, gia_mac_dinh DOUBLE, ton_kho DOUBLE, nguoi_tao VARCHAR(255))''')
+        check_and_add_column(cursor, 'loai_than', 'don_vi_tinh', "VARCHAR(50) DEFAULT 'kg'")
+        check_and_add_column(cursor, 'loai_than', 'he_so_kg', "DOUBLE DEFAULT 1.0")
+        
+        cursor.execute('''CREATE TABLE IF NOT EXISTS khach_hang (id INTEGER PRIMARY KEY, ma_khach_hang VARCHAR(50) UNIQUE, ten_khach VARCHAR(255) UNIQUE, sdt VARCHAR(50), dia_chi TEXT, khu_vuc VARCHAR(255), link_google_maps TEXT, nguoi_tao VARCHAR(255))''')
         check_and_add_column(cursor, 'khach_hang', 'lat', 'DOUBLE DEFAULT 0.0')
         check_and_add_column(cursor, 'khach_hang', 'lon', 'DOUBLE DEFAULT 0.0')
         check_and_add_column(cursor, 'khach_hang', 'han_muc_no', 'DOUBLE DEFAULT 0.0')
@@ -241,24 +245,21 @@ def init_database():
         cursor.execute('''CREATE TABLE IF NOT EXISTS gia_rieng (khach_hang_id INTEGER, loai_than_id INTEGER, gia_uu_dai DOUBLE, PRIMARY KEY (khach_hang_id, loai_than_id))''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS lich_su_gia (id INTEGER PRIMARY KEY, khach_hang_id INTEGER, loai_than_id INTEGER, gia_cu DOUBLE, gia_moi DOUBLE, ngay_thay_doi TIMESTAMP)''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS don_hang (id INTEGER PRIMARY KEY, ma_don_hien_thi VARCHAR(50) UNIQUE, khach_hang_id INTEGER, nhan_vien_id INTEGER, ngay_ban DATE, thoi_gian_tao TIMESTAMP, da_thanh_toan INTEGER, trang_thai_giao VARCHAR(100), hinh_thuc_thanh_toan VARCHAR(100), ghi_chu TEXT, giao_gap INTEGER, tong_tien DOUBLE, tien_da_tra DOUBLE, tien_con_no DOUBLE, nguoi_tao VARCHAR(255))''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS chi_tiet_don_hang (id INTEGER PRIMARY KEY, don_hang_id INTEGER, loai_than_id INTEGER, so_luong DOUBLE, don_gia DOUBLE)''')
         
+        cursor.execute('''CREATE TABLE IF NOT EXISTS chi_tiet_don_hang (id INTEGER PRIMARY KEY, don_hang_id INTEGER, loai_than_id INTEGER, so_luong DOUBLE, don_gia DOUBLE)''')
         check_and_add_column(cursor, 'chi_tiet_don_hang', 'don_gia_von', 'DOUBLE DEFAULT 0.0')
         
         cursor.execute('''CREATE TABLE IF NOT EXISTS nhap_hang (id INTEGER PRIMARY KEY, loai_than_id INTEGER, ngay_nhap DATE, so_luong DOUBLE, don_gia_nhap DOUBLE, nguoi_tao VARCHAR(255), xuong_nhap VARCHAR(255))''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS lich_su_thanh_toan (id INTEGER PRIMARY KEY, don_hang_id INTEGER, so_tien_tra DOUBLE, hinh_thuc VARCHAR(100), ngay_tra TIMESTAMP, ghi_chu TEXT, nguoi_tao VARCHAR(255))''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS cau_hinh_in (id INTEGER PRIMARY KEY, ten_cua_hang VARCHAR(255), so_dien_thoai VARCHAR(50), thong_tin_ngan_hang TEXT, kho_giay_mac_dinh VARCHAR(100))''')
         
-        check_and_add_column(cursor, 'cau_hinh_in', 'zalo_token', 'TEXT')
-        check_and_add_column(cursor, 'cau_hinh_in', 'zalo_id', 'TEXT')
-        check_and_add_column(cursor, 'cau_hinh_in', 'zalo_active', 'INTEGER DEFAULT 0')
+        check_and_add_column(cursor, 'cau_hinh_in', 'tele_token', 'TEXT')
+        check_and_add_column(cursor, 'cau_hinh_in', 'tele_id', 'TEXT')
+        check_and_add_column(cursor, 'cau_hinh_in', 'tele_active', 'INTEGER DEFAULT 0')
         cursor.execute("INSERT OR IGNORE INTO cau_hinh_in (id, thong_tin_ngan_hang) VALUES (1, 'Chưa cài đặt')")
         
-        # BẢNG MỚI: SỔ QUỸ
         cursor.execute('''CREATE TABLE IF NOT EXISTS so_quy (id INTEGER PRIMARY KEY, ngay DATE, thoi_gian TIMESTAMP, loai_phieu VARCHAR(50), so_tien DOUBLE, hang_muc VARCHAR(255), nguoi_tao VARCHAR(255), ghi_chu TEXT)''')
         conn.commit()
-
-init_database()
 
 # ==========================================
 # ĐĂNG NHẬP & PHÂN QUYỀN
@@ -453,7 +454,8 @@ if menu == "Thống Kê (HQ)":
 # ==========================================
 # ==========================================
 # ==========================================
-# PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU (BẢN HOÀN CHỈNH BẢO VỆ TIẾN TRÌNH IN)
+# ==========================================
+# PHÂN HỆ 2: LẬP ĐƠN & IN PHIẾU (TÍCH HỢP QUY CÁCH ĐÓNG GÓI)
 # ==========================================
 elif menu == "Lập Đơn & In Phiếu":
     st.markdown("<div class='main-header'><h1 style='margin:0; font-size:24px; text-align:center;'>📋 LẬP LỆNH XUẤT KHO</h1></div>", unsafe_allow_html=True)
@@ -462,7 +464,8 @@ elif menu == "Lập Đơn & In Phiếu":
     if st.session_state.last_order_id:
         with get_connection() as conn:
             df_master = pd.read_sql_query(f"SELECT * FROM don_hang dh JOIN khach_hang kh ON dh.khach_hang_id = kh.id WHERE dh.id = {to_int(st.session_state.last_order_id)}", conn.connection)
-            details = pd.read_sql_query(f"SELECT ctdh.*, lt.ten_than FROM chi_tiet_don_hang ctdh JOIN loai_than lt ON ctdh.loai_than_id = lt.id WHERE ctdh.don_hang_id = {to_int(st.session_state.last_order_id)}", conn.connection)
+            # Kéo thêm Đơn vị tính và Quy cách từ bảng Loại Than
+            details = pd.read_sql_query(f"SELECT ctdh.*, lt.ten_than, lt.don_vi_tinh, lt.he_so_kg FROM chi_tiet_don_hang ctdh JOIN loai_than lt ON ctdh.loai_than_id = lt.id WHERE ctdh.don_hang_id = {to_int(st.session_state.last_order_id)}", conn.connection)
             
         if df_master.empty:
             st.error("Lỗi đồng bộ. Vui lòng lập lại đơn mới.")
@@ -472,10 +475,28 @@ elif menu == "Lập Đơn & In Phiếu":
             html_rows = ""; txt_rows = ""; total_val = 0
             for idx, r in enumerate(details.iterrows(), 1):
                 _, row = r; thanh_tien = row['so_luong'] * row['don_gia']; total_val += thanh_tien
-                html_rows += f"<tr><td style='text-align:center;'>{idx}</td><td>{row['ten_than']}</td><td style='text-align:center;'>{fmt_vn(row['so_luong'])}</td><td style='text-align:right;'>{fmt_vn(row['don_gia'])}</td><td style='text-align:right; font-weight:bold;'>{fmt_vn(thanh_tien)}</td></tr>"
-                txt_rows += f"- {row['ten_than']}: {fmt_vn(row['so_luong'])} kg x {fmt_vn(row['don_gia'])} đ = {fmt_vn(thanh_tien)} đ\n"
                 
-            full_html_print = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>body {{ font-family: 'Arial', sans-serif; color: #333; margin: 0; padding: 20px; }} .invoice-container {{ background: #fff; max-width: 800px; margin: 0 auto; padding: 30px; border: 1px solid #cbd5e1; border-radius: 8px; }} .header {{ display: flex; justify-content: space-between; border-bottom: 2px solid #2563eb; padding-bottom: 15px; }} .company-info h2 {{ margin: 0; color: #1e3a8a; }} table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }} th {{ background-color: #2563eb; color: white; padding: 10px; }} td {{ padding: 10px; border-bottom: 1px solid #e2e8f0; }} .total-row td {{ font-weight: bold; font-size: 18px; color: #dc2626; }} .footer {{ display: flex; justify-content: space-between; margin-top: 40px; text-align: center; }} .signature {{ width: 45%; }} .print-btn {{ display: block; width: 100%; padding: 12px; background-color: #10b981; color: white; border: none; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom:15px;}} @media print {{ .print-btn {{ display: none; }} }}</style></head><body><div class="invoice-container"><button class="print-btn" onclick="window.print()">🖨️ KÍCH HOẠT LỆNH IN FILE HÓA ĐƠN PDF</button><div class="header"><div class="company-info"><h2>{print_config["ten_cua_hang"]}</h2><p>SĐT bãi xe: {print_config["so_dien_thoai"]}</p></div><div style="text-align:right;"><h2>PHIẾU XUẤT</h2><p>Mã: <b>{master["ma_don_hien_thi"]}</b></p><p>Ngày: {master["thoi_gian_tao"]}</p></div></div><div style="margin: 20px 0; background:#f8fafc; padding:12px; border-radius:6px;">Link KH: <b>{master["ten_khach"]}</b><br>Địa chỉ: {master["dia_chi"]}<br>Ghi chú lái xe: {master["ghi_chu"]}</div><table><thead><tr><th>STT</th><th>Mặt Hàng Than</th><th>Khối Lượng (kg)</th><th>Đơn Giá (đ)</th><th>Thành Tiền (đ)</th></tr></thead><tbody>{html_rows}<tr class="total-row"><td colspan="4" style="text-align:right;">TỔNG CỘNG THANH TOÁN:</td><td style="text-align:right;">{fmt_vn(total_val)} đ</td></tr></tbody></table><p style="margin-top:20px; font-size:13px;"><b>Tài khoản thụ hưởng:</b> {print_config["thong_tin_ngan_hang"]}</p><div class="footer"><div class="signature"><p><b>Đại Diện Khách Hàng</b></p><p><i>(Ký tên)</i></p></div><div class="signature"><p><b>Thủ Kho Bảo Vệ</b></p><p><i>(Ký tên)</i></p></div></div></div></body></html>"""
+                # HIỂN THỊ HÓA ĐƠN THÔNG MINH DỰA TRÊN QUY CÁCH
+                dv = row['don_vi_tinh'] if pd.notna(row.get('don_vi_tinh')) and row.get('don_vi_tinh') != '' else 'kg'
+                hs = to_float(row['he_so_kg']) if pd.notna(row.get('he_so_kg')) and to_float(row['he_so_kg']) > 0 else 1.0
+                
+                if dv.lower() != 'kg' and hs != 1.0:
+                    so_luong_thung = row['so_luong'] / hs
+                    don_gia_thung = row['don_gia'] * hs
+                    sl_hien_thi = f"{fmt_vn(so_luong_thung)} {dv}<br><small style='color:#64748b;'>({fmt_vn(row['so_luong'])} kg)</small>"
+                    dg_hien_thi = f"{fmt_vn(don_gia_thung)} đ/{dv}"
+                    sl_txt = f"{fmt_vn(so_luong_thung)} {dv} ({fmt_vn(row['so_luong'])} kg)"
+                    dg_txt = f"{fmt_vn(don_gia_thung)} đ/{dv}"
+                else:
+                    sl_hien_thi = f"{fmt_vn(row['so_luong'])} kg"
+                    dg_hien_thi = f"{fmt_vn(row['don_gia'])} đ/kg"
+                    sl_txt = sl_hien_thi
+                    dg_txt = dg_hien_thi
+
+                html_rows += f"<tr><td style='text-align:center;'>{idx}</td><td>{row['ten_than']}</td><td style='text-align:center;'>{sl_hien_thi}</td><td style='text-align:right;'>{dg_hien_thi}</td><td style='text-align:right; font-weight:bold;'>{fmt_vn(thanh_tien)}</td></tr>"
+                txt_rows += f"- {row['ten_than']}: {sl_txt} x {dg_txt} = {fmt_vn(thanh_tien)} đ\n"
+                
+            full_html_print = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>body {{ font-family: 'Arial', sans-serif; color: #333; margin: 0; padding: 20px; }} .invoice-container {{ background: #fff; max-width: 800px; margin: 0 auto; padding: 30px; border: 1px solid #cbd5e1; border-radius: 8px; }} .header {{ display: flex; justify-content: space-between; border-bottom: 2px solid #2563eb; padding-bottom: 15px; }} .company-info h2 {{ margin: 0; color: #1e3a8a; }} table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }} th {{ background-color: #2563eb; color: white; padding: 10px; }} td {{ padding: 10px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }} .total-row td {{ font-weight: bold; font-size: 18px; color: #dc2626; }} .footer {{ display: flex; justify-content: space-between; margin-top: 40px; text-align: center; }} .signature {{ width: 45%; }} .print-btn {{ display: block; width: 100%; padding: 12px; background-color: #10b981; color: white; border: none; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom:15px;}} @media print {{ .print-btn {{ display: none; }} }}</style></head><body><div class="invoice-container"><button class="print-btn" onclick="window.print()">🖨️ KÍCH HOẠT LỆNH IN FILE HÓA ĐƠN PDF</button><div class="header"><div class="company-info"><h2>{print_config["ten_cua_hang"]}</h2><p>SĐT bãi xe: {print_config["so_dien_thoai"]}</p></div><div style="text-align:right;"><h2>PHIẾU XUẤT</h2><p>Mã: <b>{master["ma_don_hien_thi"]}</b></p><p>Ngày: {master["thoi_gian_tao"]}</p></div></div><div style="margin: 20px 0; background:#f8fafc; padding:12px; border-radius:6px;">Link KH: <b>{master["ten_khach"]}</b><br>Địa chỉ: {master["dia_chi"]}<br>Ghi chú lái xe: {master["ghi_chu"]}</div><table><thead><tr><th>STT</th><th>Mặt Hàng Than</th><th>Khối Lượng / Đóng Gói</th><th>Đơn Giá</th><th>Thành Tiền (đ)</th></tr></thead><tbody>{html_rows}<tr class="total-row"><td colspan="4" style="text-align:right;">TỔNG CỘNG THANH TOÁN:</td><td style="text-align:right;">{fmt_vn(total_val)} đ</td></tr></tbody></table><p style="margin-top:20px; font-size:13px;"><b>Tài khoản thụ hưởng:</b> {print_config["thong_tin_ngan_hang"]}</p><div class="footer"><div class="signature"><p><b>Đại Diện Khách Hàng</b></p><p><i>(Ký tên)</i></p></div><div class="signature"><p><b>Thủ Kho Bảo Vệ</b></p><p><i>(Ký tên)</i></p></div></div></div></body></html>"""
             text_bill = f"HÓA ĐƠN GIAO HÀNG - {print_config['ten_cua_hang']}\nMã: {master['ma_don_hien_thi']} | Ngày: {master['thoi_gian_tao']}\nKhách: {master['ten_khach']}\nĐịa chỉ: {master['dia_chi']}\n-------------------------\n{txt_rows}-------------------------\nTỔNG CỘNG: {fmt_vn(total_val)} VNĐ\nCK/TT: {print_config['thong_tin_ngan_hang']}\nCảm ơn quý khách!"
 
             st.success("🎉 Ghi nhận đơn hàng thành công trên máy chủ!")
@@ -491,7 +512,8 @@ elif menu == "Lập Đơn & In Phiếu":
     else:
         with get_connection() as conn:
             df_khach = pd.read_sql_query("SELECT id, ma_khach_hang, ten_khach, han_muc_no FROM khach_hang", conn.connection)
-            df_than = pd.read_sql_query("SELECT id, ten_than, gia_nhap_mac_dinh, gia_mac_dinh, ton_kho FROM loai_than", conn.connection)
+            # Kéo thêm dữ liệu Đơn vị và Quy cách
+            df_than = pd.read_sql_query("SELECT id, ten_than, gia_nhap_mac_dinh, gia_mac_dinh, ton_kho, don_vi_tinh, he_so_kg FROM loai_than", conn.connection)
 
         if df_khach.empty or df_than.empty: st.warning("Vui lòng khởi tạo Danh mục đối tác và Chủng loại than trước.")
         else:
@@ -523,17 +545,49 @@ elif menu == "Lập Đơn & In Phiếu":
                 ton_kho_hien_tai = to_float(df_tk_filter['ton_kho'].values[0]) if not df_tk_filter.empty else 0.0
                 gia_von_kho = to_float(df_tk_filter['gia_nhap_mac_dinh'].values[0]) if not df_tk_filter.empty else 0.0
                 
-                st.markdown(f"Trữ lượng bãi thực tế: <b style='color:#2563eb;'>{fmt_vn(ton_kho_hien_tai)} kg</b>", unsafe_allow_html=True)
-                st.markdown("---")
+                # BẮT ĐẦU XỬ LÝ QUY CÁCH ĐÓNG HÀNG
+                dv_tinh = df_tk_filter['don_vi_tinh'].values[0] if 'don_vi_tinh' in df_tk_filter.columns and pd.notna(df_tk_filter['don_vi_tinh'].values[0]) else 'kg'
+                hs_kg = to_float(df_tk_filter['he_so_kg'].values[0]) if 'he_so_kg' in df_tk_filter.columns and pd.notna(df_tk_filter['he_so_kg'].values[0]) else 1.0
+                if hs_kg <= 0: hs_kg = 1.0
                 
-                col_sl, col_dg = st.columns(2)
-                with col_sl: sl = st.number_input("Khối lượng (kg):", min_value=1, value=1000, step=100, format="%d")
-                with col_dg: dg = st.number_input("Đơn giá bán (đ/kg):", min_value=1, value=to_int(gia_goi_y), step=500, format="%d")
-                
+                if dv_tinh.lower() == 'kg':
+                    st.markdown(f"Trữ lượng bãi thực tế: <b style='color:#2563eb;'>{fmt_vn(ton_kho_hien_tai)} kg</b>", unsafe_allow_html=True)
+                    st.markdown("---")
+                    col_sl, col_dg = st.columns(2)
+                    with col_sl: sl = st.number_input("Khối lượng (kg):", min_value=1.0, value=1000.0, step=100.0)
+                    with col_dg: dg = st.number_input("Đơn giá bán (đ/kg):", min_value=1.0, value=float(gia_goi_y), step=500.0)
+                    
+                    sl_kg = sl
+                    dg_kg = dg
+                    thanh_tien = sl * dg
+                    hien_thi_sl = f"{fmt_vn(sl)} kg"
+                    hien_thi_dg = f"{fmt_vn(dg)} đ/kg"
+                else:
+                    ton_kho_dv = ton_kho_hien_tai / hs_kg
+                    st.markdown(f"Trữ lượng bãi thực tế: <b style='color:#2563eb;'>{fmt_vn(ton_kho_dv)} {dv_tinh}</b> <small>(Tương đương {fmt_vn(ton_kho_hien_tai)} kg)</small>", unsafe_allow_html=True)
+                    st.markdown("---")
+                    col_sl, col_dg = st.columns(2)
+                    with col_sl: sl = st.number_input(f"Số lượng ({dv_tinh}):", min_value=1.0, value=10.0, step=1.0, help=f"Hệ thống sẽ tự quy đổi: 1 {dv_tinh} = {hs_kg} kg")
+                    # Gợi ý đơn giá tự nhân theo quy cách
+                    gia_dv_goi_y = float(gia_goi_y) * hs_kg
+                    with col_dg: dg = st.number_input(f"Đơn giá bán (đ/{dv_tinh}):", min_value=1.0, value=gia_dv_goi_y, step=1000.0)
+                    
+                    # Hệ thống luôn ngầm định tính toán và trừ kho theo hệ KG để báo cáo không bị sai lệch
+                    sl_kg = sl * hs_kg
+                    dg_kg = dg / hs_kg
+                    thanh_tien = sl * dg
+                    hien_thi_sl = f"{fmt_vn(sl)} {dv_tinh}"
+                    hien_thi_dg = f"{fmt_vn(dg)} đ/{dv_tinh}"
+
                 if st.button("➕ NẠP VÀO PHIẾU XUẤT", use_container_width=True):
                     if any(i['loai_than_id'] == to_int(t_id) for i in st.session_state.cart): st.error("Mặt hàng này đã nằm trong danh sách tạm tính!")
                     else:
-                        st.session_state.cart.append({'loai_than_id': to_int(t_id), 'ten_than': than_dict.get(t_id), 'so_luong': sl, 'don_gia': dg, 'thanh_tien': sl * dg, 'don_gia_von': gia_von_kho})
+                        st.session_state.cart.append({
+                            'loai_than_id': to_int(t_id), 'ten_than': than_dict.get(t_id), 
+                            'so_luong': sl_kg, 'don_gia': dg_kg, 'thanh_tien': thanh_tien, 
+                            'don_gia_von': gia_von_kho,
+                            'hien_thi_sl': hien_thi_sl, 'hien_thi_dg': hien_thi_dg
+                        })
                         st.rerun()
             
             with panel_cart:
@@ -541,10 +595,11 @@ elif menu == "Lập Đơn & In Phiếu":
                 st.markdown("### 📊 BẢNG TỔNG HỢP TẠM TÍNH")
                 if st.session_state.cart:
                     df_c = pd.DataFrame(st.session_state.cart)
-                    st.dataframe(df_c[['ten_than', 'so_luong', 'don_gia', 'thanh_tien']].rename(columns={
-                        'ten_than':'Chủng Loại Than', 'so_luong':'Khối Lượng (kg)', 'don_gia':'Đơn Giá (đ)', 'thanh_tien':'Thành Tiền (đ)'
+                    # Hiển thị đẹp mắt trên Cart
+                    st.dataframe(df_c[['ten_than', 'hien_thi_sl', 'hien_thi_dg', 'thanh_tien']].rename(columns={
+                        'ten_than':'Chủng Loại Than', 'hien_thi_sl':'Số Lượng', 'hien_thi_dg':'Đơn Giá', 'thanh_tien':'Thành Tiền (đ)'
                     }).style.format({
-                        'Khối Lượng (kg)': lambda x: fmt_vn(x), 'Đơn Giá (đ)': lambda x: fmt_vn(x), 'Thành Tiền (đ)': lambda x: fmt_vn(x)
+                        'Thành Tiền (đ)': lambda x: fmt_vn(x)
                     }), hide_index=True, use_container_width=True)
                     
                     total_val = df_c['thanh_tien'].sum()
@@ -568,6 +623,7 @@ elif menu == "Lập Đơn & In Phiếu":
                                 for i in st.session_state.cart:
                                     ton_check = df_than[df_than['id'] == to_int(i['loai_than_id'])]
                                     ton_val = to_float(ton_check['ton_kho'].values[0]) if not ton_check.empty else 0.0
+                                    # Cảnh báo tồn kho bây giờ cũng tính bằng kg ngầm định
                                     if to_float(i['so_luong']) > ton_val: stock_ok = False; st.error(f"Cảnh báo: Mã {i['ten_than']} vượt trữ lượng bãi xe!")
                                 
                                 if stock_ok:
@@ -586,20 +642,13 @@ elif menu == "Lập Đơn & In Phiếu":
                                                 cur.execute("UPDATE loai_than SET ton_kho = ton_kho - ? WHERE id = ?", (i['so_luong'], to_int(i['loai_than_id'])))
                                             conn.commit()
                                         
-                                        # === VÙNG BẢO VỆ TUYỆT ĐỐI: LỖI TELEGRAM KHÔNG ĐƯỢC PHÉP CHẶN IN PHIẾU ===
-                                        try:
-                                            send_tele_notify(f"📢 [LỆNH XUẤT MỚI]\n- Mã đơn: {ma_don_final}\n- Khách: {k_info['ten_khach']}\n- Tổng tiền: {fmt_vn(total_val)} VNĐ\n- Trực ca: {st.session_state.current_user}")
-                                        except:
-                                            pass # Nếu lỗi telegram hoặc chưa khai báo hàm, bỏ qua để chạy tiếp lệnh in bên dưới
+                                        try: send_tele_notify(f"📢 [LỆNH XUẤT MỚI]\n- Mã đơn: {ma_don_final}\n- Khách: {k_info['ten_khach']}\n- Tổng tiền: {fmt_vn(total_val)} VNĐ\n- Trực ca: {st.session_state.current_user}")
+                                        except: pass 
                                         
-                                        # Thiết lập trạng thái chuyển sang màn hình in ngay lập tức
                                         write_log("Lập đơn hàng", "SUCCESS", f"Mã phiếu: {ma_don_final}")
-                                        st.session_state.cart = []
-                                        st.session_state.last_order_id = new_id
-                                        st.rerun()
+                                        st.session_state.cart = []; st.session_state.last_order_id = new_id; st.rerun()
                                     except Exception as e: 
-                                        write_log("Lập đơn hàng", "ERROR", str(e))
-                                        st.error(f"Lỗi hệ thống bãi xe: {str(e)}")
+                                        write_log("Lập đơn hàng", "ERROR", str(e)); st.error(f"Lỗi hệ thống bãi xe: {str(e)}")
                 else: st.info("Giỏ hàng rỗng.")
                 st.markdown("</div>", unsafe_allow_html=True)
 # ==========================================
@@ -1050,10 +1099,10 @@ elif menu == "Cài Đặt Hệ Thống":
     if st.session_state.user_role == 'admin': tabs_list.extend(["6. Quản Lý Tài Khoản", "7. System Log"])
     tab_sys = st.selectbox("Chọn hạng mục:", tabs_list)
     
-    # ------------------ 1. LOẠI THAN (TÍNH GIÁ VỐN MAC) ------------------
+   # ------------------ 1. LOẠI THAN (TÍNH GIÁ VỐN MAC & QUY CÁCH ĐÓNG HÀNG) ------------------
     if tab_sys == "1. Danh Mục Loại Than":
         with get_connection() as conn: 
-            df_t = pd.read_sql_query("SELECT id, ten_than as 'Tên Loại Than', gia_nhap_mac_dinh as 'Giá Vốn (đ)', gia_mac_dinh as 'Giá Bán (đ)', ton_kho as 'Tồn Kho (kg)' FROM loai_than", conn.connection)
+            df_t = pd.read_sql_query("SELECT id, ten_than as 'Tên Loại Than', gia_nhap_mac_dinh as 'Giá Vốn (đ)', gia_mac_dinh as 'Giá Bán (đ)', ton_kho as 'Tồn Kho (kg)', don_vi_tinh, he_so_kg FROM loai_than", conn.connection)
             df_nhap = pd.read_sql_query('''SELECT nh.ngay_nhap as "Ngày", lt.ten_than as "Loại Than", nh.xuong_nhap as "Xưởng", nh.so_luong as "SL (kg)", nh.don_gia_nhap as "Giá Nhập" FROM nhap_hang nh JOIN loai_than lt ON nh.loai_than_id = lt.id ORDER BY nh.id DESC''', conn.connection)
             
         t_sub1, t_sub2 = st.tabs(["📋 Danh Mục Hàng Hóa", "🚢 Nhập Hàng & Giá Vốn"])
@@ -1064,11 +1113,19 @@ elif menu == "Cài Đặt Hệ Thống":
                 st.markdown(f"<div class='edit-box'><h4>✏️ ĐANG CHỈNH SỬA: {t_info['Tên Loại Than']}</h4></div>", unsafe_allow_html=True)
                 with st.form("f_edit_than_master"):
                     en = st.text_input("Tên chủng loại:", value=t_info['Tên Loại Than'])
-                    ep = st.number_input("Đơn giá bán mới (đ):", value=to_int(t_info['Giá Bán (đ)']), step=500, format="%d")
+                    ep = st.number_input("Đơn giá bán niêm yết (đ/kg):", value=to_int(t_info['Giá Bán (đ)']), step=500, format="%d")
+                    
+                    c_dv1, c_dv2 = st.columns(2)
+                    with c_dv1: e_dv = st.selectbox("Đơn vị tính (Quy cách đóng gói):", ["kg", "Thùng", "Bao", "Hộp"], index=["kg", "Thùng", "Bao", "Hộp"].index(t_info['don_vi_tinh']) if t_info['don_vi_tinh'] in ["kg", "Thùng", "Bao", "Hộp"] else 0)
+                    with c_dv2: e_hs = st.number_input("Quy cách (Số kg / 1 Đơn vị):", min_value=1.0, value=to_float(t_info['he_so_kg']) if to_float(t_info['he_so_kg']) > 0 else 1.0, help="Ví dụ 1 Thùng nặng 20kg thì nhập 20.")
+                    
                     bc1, bc2 = st.columns([1, 10])
                     with bc1:
                         if st.form_submit_button("💾 LƯU", type="primary"):
-                            with get_connection() as conn: conn.execute("UPDATE loai_than SET ten_than=?, gia_mac_dinh=? WHERE id=?", (en.strip(), ep, edit_id)); conn.commit()
+                            if e_dv.lower() == 'kg': e_hs = 1.0
+                            with get_connection() as conn: 
+                                conn.execute("UPDATE loai_than SET ten_than=?, gia_mac_dinh=?, don_vi_tinh=?, he_so_kg=? WHERE id=?", (en.strip(), ep, e_dv, e_hs, edit_id))
+                                conn.commit()
                             st.session_state.edit_t_id = None; st.rerun()
                     with bc2:
                         if st.form_submit_button("Hủy bỏ"): st.session_state.edit_t_id = None; st.rerun()
@@ -1078,31 +1135,46 @@ elif menu == "Cài Đặt Hệ Thống":
                 with st.form("f_c_add"):
                     c1, c2, c3 = st.columns(3)
                     with c1: n = st.text_input("Tên chủng loại than mới:")
-                    with c2: pn = st.number_input("Giá mua gốc nhập kho (đ):", value=1500, step=500, format="%d")
-                    with c3: p = st.number_input("Giá bán niêm yết (đ):", value=3000, step=500, format="%d")
+                    with c2: pn = st.number_input("Giá mua gốc nhập kho (đ/kg):", value=1500, step=500, format="%d")
+                    with c3: p = st.number_input("Giá bán niêm yết (đ/kg):", value=3000, step=500, format="%d")
+                    
+                    c4, c5 = st.columns(2)
+                    with c4: dv = st.selectbox("Đơn vị tính (Quy cách đóng gói):", ["kg", "Thùng", "Bao", "Hộp"])
+                    with c5: hs = st.number_input("Quy cách (Số kg / 1 Đơn vị):", min_value=1.0, value=1.0, help="Ví dụ 1 Thùng nặng 20kg thì nhập 20.")
+                    
                     if st.form_submit_button("Lưu Thêm"):
-                        with get_connection() as conn: conn.execute("INSERT INTO loai_than(id, ten_than, gia_nhap_mac_dinh, gia_mac_dinh, ton_kho, nguoi_tao) VALUES(?,?,?,?,?,?)", (get_next_id('loai_than', conn.cursor()), n.strip(), pn, p, 0, st.session_state.current_user)); conn.commit()
+                        if dv.lower() == 'kg': hs = 1.0
+                        with get_connection() as conn: 
+                            conn.execute("INSERT INTO loai_than(id, ten_than, gia_nhap_mac_dinh, gia_mac_dinh, ton_kho, nguoi_tao, don_vi_tinh, he_so_kg) VALUES(?,?,?,?,?,?,?,?)", 
+                                         (get_next_id('loai_than', conn.cursor()), n.strip(), pn, p, 0, st.session_state.current_user, dv, hs))
+                            conn.commit()
                         st.success("Đã thêm chủng loại!"); st.rerun()
                 st.markdown("---")
             
             st.markdown("#### 📋 Quản Lý Chủng Loại Hàng Hóa")
             if not df_t.empty:
-                c1, c2, c3, c4, c5 = st.columns([3, 2, 2, 2, 2])
-                c1.markdown("<b>Tên Loại Than</b>", unsafe_allow_html=True); c2.markdown("<b>Giá Vốn (BQ)</b>", unsafe_allow_html=True)
-                c3.markdown("<b>Giá Bán</b>", unsafe_allow_html=True); c4.markdown("<b>Tồn Kho</b>", unsafe_allow_html=True)
-                if can_edit: c5.markdown("<b>Thao tác</b>", unsafe_allow_html=True)
+                c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1.5, 1.5, 1.5, 1.5, 1.5])
+                c1.markdown("<b>Tên Loại Than</b>", unsafe_allow_html=True); c2.markdown("<b>Quy Cách</b>", unsafe_allow_html=True)
+                c3.markdown("<b>Giá Vốn/kg</b>", unsafe_allow_html=True); c4.markdown("<b>Giá Bán/kg</b>", unsafe_allow_html=True)
+                c5.markdown("<b>Tồn Kho</b>", unsafe_allow_html=True)
+                if can_edit: c6.markdown("<b>Thao tác</b>", unsafe_allow_html=True)
+                
                 for idx, r in df_t.iterrows():
                     with st.container():
-                        if can_edit: cc1, cc2, cc3, cc4, cc5, cc6 = st.columns([3, 2, 2, 2, 1, 1])
-                        else: cc1, cc2, cc3, cc4 = st.columns([3, 2, 2, 2])
+                        if can_edit: cc1, cc2, cc3, cc4, cc5, cc6, cc7 = st.columns([2.5, 1.5, 1.5, 1.5, 1.5, 0.75, 0.75])
+                        else: cc1, cc2, cc3, cc4, cc5 = st.columns([2.5, 1.5, 1.5, 1.5, 1.5])
+                        
                         cc1.markdown(f"<div class='list-row'>{r['Tên Loại Than']}</div>", unsafe_allow_html=True)
-                        cc2.markdown(f"<div class='list-row'>{fmt_vn(r['Giá Vốn (đ)'])} đ</div>", unsafe_allow_html=True)
-                        cc3.markdown(f"<div class='list-row'>{fmt_vn(r['Giá Bán (đ)'])} đ</div>", unsafe_allow_html=True)
-                        cc4.markdown(f"<div class='list-row'>{fmt_vn(r['Tồn Kho (kg)'])} kg</div>", unsafe_allow_html=True)
+                        qc_str = f"1 {r['don_vi_tinh']} = {fmt_vn(r['he_so_kg'])} kg" if r['don_vi_tinh'].lower() != 'kg' else "kg (rời)"
+                        cc2.markdown(f"<div class='list-row'>{qc_str}</div>", unsafe_allow_html=True)
+                        cc3.markdown(f"<div class='list-row'>{fmt_vn(r['Giá Vốn (đ)'])} đ</div>", unsafe_allow_html=True)
+                        cc4.markdown(f"<div class='list-row'>{fmt_vn(r['Giá Bán (đ)'])} đ</div>", unsafe_allow_html=True)
+                        cc5.markdown(f"<div class='list-row'>{fmt_vn(r['Tồn Kho (kg)'])} kg</div>", unsafe_allow_html=True)
+                        
                         if can_edit:
-                            with cc5: 
-                                if st.button("✏️", key=f"edit_t_{r['id']}"): st.session_state.edit_t_id = r['id']; st.rerun()
                             with cc6: 
+                                if st.button("✏️", key=f"edit_t_{r['id']}"): st.session_state.edit_t_id = r['id']; st.rerun()
+                            with cc7: 
                                 if st.button("❌", key=f"del_t_{r['id']}"): cb_xoa_than(r['id']); st.rerun()
 
         with t_sub2:
@@ -1116,7 +1188,6 @@ elif menu == "Cài Đặt Hệ Thống":
                     w_in = st.number_input("Khối lượng nhập bãi (kg):", min_value=1, value=1000, step=100, format="%d")
                     p_in = st.number_input("Giá cả chuyến nhập (đ/kg):", value=1500, step=500, format="%d")
                     if st.form_submit_button("Xác nhận lệnh nhập & Hòa trộn giá vốn"):
-                        # THUẬT TOÁN TÍNH GIÁ VỐN BÌNH QUÂN (MOVING AVERAGE COST)
                         ton_kho_cu = to_float(df_t[df_t['id']==to_int(id_n)]['Tồn Kho (kg)'].values[0])
                         gia_von_cu = to_float(df_t[df_t['id']==to_int(id_n)]['Giá Vốn (đ)'].values[0])
                         
