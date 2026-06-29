@@ -509,7 +509,7 @@ if menu == "Thống Kê (HQ)":
         ch1, ch2 = st.columns(2) 
         with ch1: st.plotly_chart(px.pie(df_flat.groupby('ten_than')['so_luong'].sum().reset_index(), values='so_luong', names='ten_than', hole=0.4, title="Tỷ trọng than xuất kho"), use_container_width=True)
         with ch2: st.plotly_chart(px.pie(df_flat.groupby('ten_khach')['loi_nhuan'].sum().reset_index(), values='loi_nhuan', names='ten_khach', hole=0.4, title="Lợi nhuận theo khách hàng"), use_container_width=True)
-    if auto_refresh: time.sleep(30); st.rerun()
+    
     # ==========================================
     # MODULE THỐNG KÊ: CHỈ SỐ TĂNG TRƯỞNG KHÁCH HÀNG MỚI
     # ==========================================
@@ -579,6 +579,7 @@ if menu == "Thống Kê (HQ)":
         }), hide_index=True, use_container_width=True)
     else:
         st.warning("⚠️ Báo động đỏ: Tháng này bãi xe chưa khai thác được khách hàng mới nào. Cần thúc đẩy bộ phận Kinh doanh chạy thị trường!")
+    if auto_refresh: time.sleep(30); st.rerun()
 # ==========================================
 # ==========================================
 # ==========================================
