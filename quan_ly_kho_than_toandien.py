@@ -160,24 +160,39 @@ def check_and_add_column(cursor, table, col_name, col_def):
     if col_name not in cols: cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
 
 @st.cache_resource
+@st.cache_resource
 def init_local_db():
     conn = sqlite3.connect("kho_than.db", check_same_thread=False)
     client = get_gspread_client()
     sheet = client.open_by_url(SHEET_URL)
+    
+    # 1. Nạp dữ liệu từ Google Sheets vào SQLite
     for ws in sheet.worksheets():
         data = ws.get_all_records()
         if data:
             df = pd.DataFrame(data)
-            if 'id' in df.columns: df['id'] = pd.to_numeric(df['id'], errors='coerce')
+            df = df.dropna(how='all')
+            if 'id' in df.columns: 
+                df['id'] = pd.to_numeric(df['id'], errors='coerce')
+                df = df.dropna(subset=['id'])
             df.to_sql(ws.title, conn, if_exists='replace', index=False)
-    conn.execute("DELETE FROM loai_than WHERE id IS NULL OR id = '' OR ten_than IS NULL OR TRIM(ten_than) = ''")
-    conn.execute("DELETE FROM khach_hang WHERE id IS NULL OR id = '' OR ten_khach IS NULL OR TRIM(ten_khach) = ''")
-    conn.execute("DELETE FROM nhan_vien WHERE id IS NULL OR id = '' OR ten_nhan_vien IS NULL OR TRIM(ten_nhan_vien) = ''")
-    conn.commit()
+    
+    # 2. Dọn dẹp dữ liệu an toàn (Kiểm tra bảng tồn tại trước)
+    cursor = conn.cursor()
+    tables_to_clean = ["loai_than", "khach_hang", "nhan_vien"]
+    
+    for table in tables_to_clean:
+        # Kiểm tra xem bảng có tồn tại không
+        cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'")
+        if cursor.fetchone():
+            try:
+                # Dọn dẹp dòng rác
+                cursor.execute(f"DELETE FROM {table} WHERE id IS NULL OR TRIM(ten_{table.replace('loai_than', 'than').replace('khach_hang', 'khach').replace('nhan_vien', 'nhan_vien')}) = ''")
+                conn.commit()
+            except Exception as e:
+                print(f"Lỗi dọn dẹp bảng {table}: {e}")
+        
     return conn
-
-init_local_db()
-
 def background_sync_task():
     try:
         bg_conn = sqlite3.connect("kho_than.db", check_same_thread=False)
