@@ -160,23 +160,37 @@ def check_and_add_column(cursor, table, col_name, col_def):
     if col_name not in cols: cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
 
 @st.cache_resource
+@st.cache_resource
 def init_local_db():
     conn = sqlite3.connect("kho_than.db", check_same_thread=False)
     client = get_gspread_client()
     sheet = client.open_by_url(SHEET_URL)
+    
     for ws in sheet.worksheets():
         data = ws.get_all_records()
         if data:
             df = pd.DataFrame(data)
-            if 'id' in df.columns: df['id'] = pd.to_numeric(df['id'], errors='coerce')
+            # Loại bỏ hoàn toàn các dòng trống (nếu tất cả ô đều trống)
+            df = df.dropna(how='all')
+            
+            # Ép kiểu an toàn cho cột id trước khi nạp
+            if 'id' in df.columns: 
+                df['id'] = pd.to_numeric(df['id'], errors='coerce')
+                df = df.dropna(subset=['id'])
+            
             df.to_sql(ws.title, conn, if_exists='replace', index=False)
-    conn.execute("DELETE FROM loai_than WHERE id IS NULL OR id = '' OR ten_than IS NULL OR TRIM(ten_than) = ''")
-    conn.execute("DELETE FROM khach_hang WHERE id IS NULL OR id = '' OR ten_khach IS NULL OR TRIM(ten_khach) = ''")
-    conn.execute("DELETE FROM nhan_vien WHERE id IS NULL OR id = '' OR ten_nhan_vien IS NULL OR TRIM(ten_nhan_vien) = ''")
-    conn.commit()
+    
+    # Dùng lệnh SQL an toàn để dọn dẹp dữ liệu rác
+    try:
+        conn.execute("DELETE FROM loai_than WHERE id IS NULL OR TRIM(ten_than) = ''")
+        conn.execute("DELETE FROM khach_hang WHERE id IS NULL OR TRIM(ten_khach) = ''")
+        conn.execute("DELETE FROM nhan_vien WHERE id IS NULL OR TRIM(ten_nhan_vien) = ''")
+        conn.commit()
+    except: 
+        # Nếu bảng chưa tồn tại thì bỏ qua lệnh xóa
+        pass
+        
     return conn
-
-init_local_db()
 
 def background_sync_task():
     try:
