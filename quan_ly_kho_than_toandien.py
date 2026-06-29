@@ -225,44 +225,62 @@ def sinh_ma_don_hang_theo_ngay(date_str):
 def init_database():
     with get_connection() as conn:
         cursor = conn.cursor()
+        
+        # 1. BẢNG USERS
         cursor.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username VARCHAR(255) UNIQUE, password VARCHAR(255), role VARCHAR(50), status VARCHAR(50))''')
         cursor.execute("SELECT * FROM users WHERE username='admin'")
         if not cursor.fetchone(): 
             uid = get_next_id('users', cursor)
             cursor.execute("INSERT INTO users (id, username, password, role, status) VALUES (?, ?, ?, 'admin', 'Đã duyệt')", (uid, 'admin', hash_password(st.secrets["admin_pass"])))
+        conn.commit()
         
+        # 2. BẢNG LOẠI THAN (ÉP TẠO 2 CỘT QUY CÁCH BẰNG VŨ LỰC ĐỂ CHỐNG LỖI)
         cursor.execute('''CREATE TABLE IF NOT EXISTS loai_than (id INTEGER PRIMARY KEY, ten_than VARCHAR(255) UNIQUE, gia_nhap_mac_dinh DOUBLE, gia_mac_dinh DOUBLE, ton_kho DOUBLE, nguoi_tao VARCHAR(255))''')
+        try: cursor.execute("ALTER TABLE loai_than ADD COLUMN don_vi_tinh VARCHAR(50) DEFAULT 'kg'")
+        except: pass
+        try: cursor.execute("ALTER TABLE loai_than ADD COLUMN he_so_kg DOUBLE DEFAULT 1.0")
+        except: pass
+        conn.commit()
         
-        # --- 2 DÒNG LỆNH QUAN TRỌNG ĐỂ FIX LỖI DATABASE ---
-        check_and_add_column(cursor, 'loai_than', 'don_vi_tinh', "VARCHAR(50) DEFAULT 'kg'")
-        check_and_add_column(cursor, 'loai_than', 'he_so_kg', "DOUBLE DEFAULT 1.0")
-        
+        # 3. BẢNG KHÁCH HÀNG
         cursor.execute('''CREATE TABLE IF NOT EXISTS khach_hang (id INTEGER PRIMARY KEY, ma_khach_hang VARCHAR(50) UNIQUE, ten_khach VARCHAR(255) UNIQUE, sdt VARCHAR(50), dia_chi TEXT, khu_vuc VARCHAR(255), link_google_maps TEXT, nguoi_tao VARCHAR(255))''')
+        try: cursor.execute("ALTER TABLE khach_hang ADD COLUMN lat DOUBLE DEFAULT 0.0")
+        except: pass
+        try: cursor.execute("ALTER TABLE khach_hang ADD COLUMN lon DOUBLE DEFAULT 0.0")
+        except: pass
+        try: cursor.execute("ALTER TABLE khach_hang ADD COLUMN han_muc_no DOUBLE DEFAULT 0.0")
+        except: pass
+        conn.commit()
         
-        check_and_add_column(cursor, 'khach_hang', 'lat', 'DOUBLE DEFAULT 0.0')
-        check_and_add_column(cursor, 'khach_hang', 'lon', 'DOUBLE DEFAULT 0.0')
-        check_and_add_column(cursor, 'khach_hang', 'han_muc_no', 'DOUBLE DEFAULT 0.0')
-        
+        # 4. CÁC BẢNG TRUNG GIAN
         cursor.execute('''CREATE TABLE IF NOT EXISTS nhan_vien (id INTEGER PRIMARY KEY, ten_nhan_vien VARCHAR(255) UNIQUE, sdt VARCHAR(50), chuc_vu VARCHAR(100))''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS gia_rieng (khach_hang_id INTEGER, loai_than_id INTEGER, gia_uu_dai DOUBLE, PRIMARY KEY (khach_hang_id, loai_than_id))''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS lich_su_gia (id INTEGER PRIMARY KEY, khach_hang_id INTEGER, loai_than_id INTEGER, gia_cu DOUBLE, gia_moi DOUBLE, ngay_thay_doi TIMESTAMP)''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS don_hang (id INTEGER PRIMARY KEY, ma_don_hien_thi VARCHAR(50) UNIQUE, khach_hang_id INTEGER, nhan_vien_id INTEGER, ngay_ban DATE, thoi_gian_tao TIMESTAMP, da_thanh_toan INTEGER, trang_thai_giao VARCHAR(100), hinh_thuc_thanh_toan VARCHAR(100), ghi_chu TEXT, giao_gap INTEGER, tong_tien DOUBLE, tien_da_tra DOUBLE, tien_con_no DOUBLE, nguoi_tao VARCHAR(255))''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS chi_tiet_don_hang (id INTEGER PRIMARY KEY, don_hang_id INTEGER, loai_than_id INTEGER, so_luong DOUBLE, don_gia DOUBLE)''')
         
-        check_and_add_column(cursor, 'chi_tiet_don_hang', 'don_gia_von', 'DOUBLE DEFAULT 0.0')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS chi_tiet_don_hang (id INTEGER PRIMARY KEY, don_hang_id INTEGER, loai_than_id INTEGER, so_luong DOUBLE, don_gia DOUBLE)''')
+        try: cursor.execute("ALTER TABLE chi_tiet_don_hang ADD COLUMN don_gia_von DOUBLE DEFAULT 0.0")
+        except: pass
+        conn.commit()
         
         cursor.execute('''CREATE TABLE IF NOT EXISTS nhap_hang (id INTEGER PRIMARY KEY, loai_than_id INTEGER, ngay_nhap DATE, so_luong DOUBLE, don_gia_nhap DOUBLE, nguoi_tao VARCHAR(255), xuong_nhap VARCHAR(255))''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS lich_su_thanh_toan (id INTEGER PRIMARY KEY, don_hang_id INTEGER, so_tien_tra DOUBLE, hinh_thuc VARCHAR(100), ngay_tra TIMESTAMP, ghi_chu TEXT, nguoi_tao VARCHAR(255))''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS cau_hinh_in (id INTEGER PRIMARY KEY, ten_cua_hang VARCHAR(255), so_dien_thoai VARCHAR(50), thong_tin_ngan_hang TEXT, kho_giay_mac_dinh VARCHAR(100))''')
         
-        check_and_add_column(cursor, 'cau_hinh_in', 'tele_token', 'TEXT')
-        check_and_add_column(cursor, 'cau_hinh_in', 'tele_id', 'TEXT')
-        check_and_add_column(cursor, 'cau_hinh_in', 'tele_active', 'INTEGER DEFAULT 0')
+        # 5. CẤU HÌNH IN (FIX LỖI ZALO BỊ GHI ĐÈ THÀNH TELEGRAM)
+        cursor.execute('''CREATE TABLE IF NOT EXISTS cau_hinh_in (id INTEGER PRIMARY KEY, ten_cua_hang VARCHAR(255), so_dien_thoai VARCHAR(50), thong_tin_ngan_hang TEXT, kho_giay_mac_dinh VARCHAR(100))''')
+        try: cursor.execute("ALTER TABLE cau_hinh_in ADD COLUMN zalo_token TEXT")
+        except: pass
+        try: cursor.execute("ALTER TABLE cau_hinh_in ADD COLUMN zalo_id TEXT")
+        except: pass
+        try: cursor.execute("ALTER TABLE cau_hinh_in ADD COLUMN zalo_active INTEGER DEFAULT 0")
+        except: pass
         cursor.execute("INSERT OR IGNORE INTO cau_hinh_in (id, thong_tin_ngan_hang) VALUES (1, 'Chưa cài đặt')")
         
-        # BẢNG MỚI: SỔ QUỸ
+        # 6. SỔ QUỸ
         cursor.execute('''CREATE TABLE IF NOT EXISTS so_quy (id INTEGER PRIMARY KEY, ngay DATE, thoi_gian TIMESTAMP, loai_phieu VARCHAR(50), so_tien DOUBLE, hang_muc VARCHAR(255), nguoi_tao VARCHAR(255), ghi_chu TEXT)''')
         conn.commit()
+
+init_database()
 
 # ==========================================
 # ĐĂNG NHẬP & PHÂN QUYỀN
