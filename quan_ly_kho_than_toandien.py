@@ -946,7 +946,6 @@ elif menu == "Lịch Sử Đơn Hàng":
                                 tong_tien_cu = to_float(don_info['tong_tien'])
                                 tien_da_tra_cu = to_float(don_info['tien_da_tra'])
                                 
-                                # Tính toán lại số liệu
                                 tong_tien_moi = tong_tien_cu - tien_giam_tru
                                 tien_con_no_moi = tong_tien_moi - tien_da_tra_cu
                                 da_thanh_toan_moi = 1 if tien_con_no_moi <= 0 else 0
@@ -955,16 +954,13 @@ elif menu == "Lịch Sử Đơn Hàng":
                                     cur = c_update.cursor()
                                     for item in return_inputs_ht:
                                         if item['ret_qty'] > 0:
-                                            # Trừ số lượng xuất trong hóa đơn, cộng lại kho bãi
                                             cur.execute("UPDATE chi_tiet_don_hang SET so_luong = so_luong - ? WHERE id=?", (item['ret_qty'], item['ct_id']))
                                             cur.execute("UPDATE loai_than SET ton_kho = ton_kho + ? WHERE id=?", (item['ret_qty'], item['loai_than_id']))
                                     
-                                    # Cập nhật hóa đơn
                                     cur.execute("UPDATE don_hang SET tong_tien=?, tien_con_no=?, da_thanh_toan=?, ghi_chu = ghi_chu || ? WHERE id=?", 
                                                 (tong_tien_moi, tien_con_no_moi, da_thanh_toan_moi, f"\n[Hoàn trả: {ghi_chu_hoan} - Giảm {fmt_vn(tien_giam_tru)}đ]", to_int(id_don_hoan)))
                                     c_update.commit()
                                 
-                                # Gửi thông báo khẩn qua Telegram
                                 try:
                                     send_tele_notify(f"⚠️ [CẢNH BÁO TRẢ HÀNG]\n- Mã đơn: {don_info['ma_don_hien_thi']}\n- Khách: {don_info['ten_khach']}\n- Giá trị bị giảm trừ: {fmt_vn(tien_giam_tru)} VNĐ\n- Lý do: {ghi_chu_hoan}\n- Người duyệt: {st.session_state.current_user}")
                                 except: pass
@@ -1023,6 +1019,8 @@ elif menu == "Lịch Sử Đơn Hàng":
                     </div>
                 """, unsafe_allow_html=True)
                 st.download_button("📥 XUẤT SỔ CÁI BÁN HÀNG CHI TIẾT (EXCEL)", data=df_filtered.to_csv(index=False, encoding='utf-8-sig'), file_name=f"SoCai_BanHang_ChiTiet_{today_str}.csv", mime="text/csv", type="primary")
+            else:
+                st.info("Bảng dữ liệu đang trống. Khi có đơn hàng được giao hoàn thành, hệ thống sẽ tự động thống kê sổ cái chi tiết tại đây.")
 # ==========================================
 # PHÂN HỆ 6: CÀI ĐẶT HỆ THỐNG - BẢN MASTER/DETAIL MỚI
 # ==========================================
