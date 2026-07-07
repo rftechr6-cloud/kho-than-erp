@@ -123,7 +123,7 @@ def cb_huy_don(don_id):
 # ==========================================
 # THIẾT KẾ ĐỒ HỌA
 # ==========================================
-st.set_page_config(page_title="ERP Quản Lý Bãi Than", page_icon="🪨", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title=" Quản Lý Bãi Than", page_icon="🪨", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""
     <style>
         html, body, [data-testid="stAppViewContainer"] { background-color: #f8fafc; font-family: "Inter", -apple-system, sans-serif; }
