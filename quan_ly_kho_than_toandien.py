@@ -898,11 +898,14 @@ elif menu == "Giao Hàng & Vận Tải":
                     with c2: 
                         if st.button("🗑️ Hủy Đơn", key=f"huy_don_dang_{r['id']}"): cb_huy_don(to_int(r['id'])); st.rerun()
 # ==========================================
+# ==========================================
 # PHÂN HỆ MỚI: SỔ QUỸ & LÃI LỖ (P&L)
 # ==========================================
 elif menu == "Sổ Quỹ & Lãi Lỗ":
+    if 'edit_sq_id' not in st.session_state: st.session_state.edit_sq_id = None
+    
     st.markdown("### 💵 Kế Toán Tổng Hợp & Báo Cáo Lãi Lỗ (P&L)")
-    tab_lap, tab_ls, tab_pl = st.tabs(["📝 Lập Phiếu Thu/Chi", "📚 Lịch Sử Giao Dịch", "📈 Báo Cáo Lãi Lỗ (P&L)"])
+    tab_lap, tab_ls, tab_pl = st.tabs(["📝 Lập Phiếu Thu/Chi", "📚 Lịch Sử & Chỉnh Sửa", "📈 Báo Cáo Lãi Lỗ (P&L)"])
     
     with tab_lap:
         with st.form("form_so_quy"):
@@ -914,22 +917,82 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                 so_tien = st.number_input("Số tiền (đ):", min_value=1000, value=100000, step=10000)
                 ghi_chu_sq = st.text_input("Ghi chú chi tiết:")
             
-            if st.form_submit_button("Lưu Phiếu", type="primary"):
+            if st.form_submit_button("Lưu Phiếu Giao Dịch", type="primary"):
                 ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
                 with get_connection() as conn:
                     cur = conn.cursor()
                     qid = get_next_id('so_quy', cur)
                     cur.execute("INSERT INTO so_quy (id, ngay, thoi_gian, loai_phieu, so_tien, hang_muc, nguoi_tao, ghi_chu) VALUES (?,?,?,?,?,?,?,?)", (qid, today_str, ts, loai_phieu, so_tien, hang_muc, st.session_state.current_user, ghi_chu_sq))
                     conn.commit()
-                st.success("Đã ghi sổ thành công!")
+                # Cảnh báo rõ ràng để người dùng biết đã lưu thành công
+                st.success("✅ Đã ghi sổ thành công! (Vui lòng bấm sang tab 'Lịch Sử & Chỉnh Sửa' để kiểm tra lại giao dịch)")
                 st.rerun()
                 
     with tab_ls:
         with get_connection() as conn:
-            df_sq = pd.read_sql_query("SELECT thoi_gian as 'Thời Gian', loai_phieu as 'Loại', hang_muc as 'Hạng Mục', so_tien as 'Số Tiền', nguoi_tao as 'Người Lập', ghi_chu as 'Ghi Chú' FROM so_quy ORDER BY id DESC", conn.connection)
+            df_sq = pd.read_sql_query("SELECT id, thoi_gian, loai_phieu, hang_muc, so_tien, nguoi_tao, ghi_chu FROM so_quy ORDER BY id DESC", conn.connection)
+        
+        # === GIAO DIỆN CHỈNH SỬA SỔ QUỸ ===
+        if st.session_state.edit_sq_id is not None:
+            edit_id = st.session_state.edit_sq_id
+            sq_info = df_sq[df_sq['id'] == edit_id].iloc[0]
+            st.markdown(f"<div class='edit-box'><h4>✏️ ĐANG SỬA PHIẾU: {sq_info['loai_phieu'].upper()} - {fmt_vn(sq_info['so_tien'])} đ</h4></div>", unsafe_allow_html=True)
+            with st.form("f_edit_sq"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    e_lp = st.radio("Loại phiếu:", ["Chi", "Thu"], index=0 if sq_info['loai_phieu']=="Chi" else 1, horizontal=True)
+                    e_hm = st.selectbox("Hạng mục:", ["Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Chi sửa xe/xăng dầu", "Thu khác", "Chi khác"], index=["Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Chi sửa xe/xăng dầu", "Thu khác", "Chi khác"].index(sq_info['hang_muc']) if sq_info['hang_muc'] in ["Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Chi sửa xe/xăng dầu", "Thu khác", "Chi khác"] else 5)
+                with c2:
+                    e_st = st.number_input("Số tiền (đ):", min_value=1000, value=to_int(sq_info['so_tien']), step=10000)
+                    e_gc = st.text_input("Ghi chú chi tiết:", value=str(sq_info['ghi_chu'] if pd.notna(sq_info['ghi_chu']) else ""))
+                
+                bc1, bc2 = st.columns([1, 10])
+                with bc1:
+                    if st.form_submit_button("💾 LƯU", type="primary"):
+                        with get_connection() as conn:
+                            conn.execute("UPDATE so_quy SET loai_phieu=?, hang_muc=?, so_tien=?, ghi_chu=? WHERE id=?", (e_lp, e_hm, e_st, e_gc, edit_id))
+                            conn.commit()
+                        st.session_state.edit_sq_id = None; st.rerun()
+                with bc2:
+                    if st.form_submit_button("Hủy bỏ"): st.session_state.edit_sq_id = None; st.rerun()
+            st.markdown("---")
+
+        # === DANH SÁCH LỊCH SỬ KÈM NÚT XÓA/SỬA ===
+        st.markdown("#### 📋 Lịch Sử Giao Dịch Kho Bãi")
         if not df_sq.empty:
-            df_sq['Số Tiền'] = df_sq['Số Tiền'].apply(to_float)
-            st.dataframe(df_sq.style.format({'Số Tiền': lambda x: fmt_vn(x)}), use_container_width=True, hide_index=True)
+            df_sq_show = df_sq.head(100) # Lấy 100 giao dịch gần nhất để phần mềm chạy mượt mà
+            c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1, 2.5, 2, 3, 1.5])
+            c1.markdown("<b>Thời Gian</b>", unsafe_allow_html=True)
+            c2.markdown("<b>Loại</b>", unsafe_allow_html=True)
+            c3.markdown("<b>Hạng Mục</b>", unsafe_allow_html=True)
+            c4.markdown("<b>Số Tiền</b>", unsafe_allow_html=True)
+            c5.markdown("<b>Ghi Chú</b>", unsafe_allow_html=True)
+            c6.markdown("<b>Thao tác</b>", unsafe_allow_html=True)
+            
+            for _, r in df_sq_show.iterrows():
+                with st.container():
+                    cc1, cc2, cc3, cc4, cc5, cc6, cc7 = st.columns([1.5, 1, 2.5, 2, 3, 0.75, 0.75])
+                    cc1.markdown(f"<div class='list-row'>{r['thoi_gian']}</div>", unsafe_allow_html=True)
+                    
+                    color = "#16a34a" if r['loai_phieu'] == "Thu" else "#dc2626"
+                    cc2.markdown(f"<div class='list-row' style='color:{color}; font-weight:bold;'>{r['loai_phieu']}</div>", unsafe_allow_html=True)
+                    
+                    cc3.markdown(f"<div class='list-row'>{r['hang_muc']}</div>", unsafe_allow_html=True)
+                    cc4.markdown(f"<div class='list-row'>{fmt_vn(r['so_tien'])} đ</div>", unsafe_allow_html=True)
+                    
+                    note = r['ghi_chu'] if pd.notna(r['ghi_chu']) and r['ghi_chu'] else "-"
+                    cc5.markdown(f"<div class='list-row'>{note}</div>", unsafe_allow_html=True)
+                    
+                    with cc6:
+                        if st.button("✏️", key=f"esq_{r['id']}"): st.session_state.edit_sq_id = r['id']; st.rerun()
+                    with cc7:
+                        if st.button("❌", key=f"dsq_{r['id']}"): 
+                            with get_connection() as c: 
+                                c.execute("DELETE FROM so_quy WHERE id=?", (r['id'],))
+                                c.commit()
+                            st.rerun()
+        else:
+            st.info("Chưa có dữ liệu thu chi nào được ghi nhận.")
             
     with tab_pl:
         st.markdown("#### 📊 Báo Cáo Lãi Lỗ Hoạt Động Doanh Nghiệp (P&L)")
@@ -971,7 +1034,6 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
             </table>
         </div>
         """, unsafe_allow_html=True)
-
 # ==========================================
 # PHÂN HỆ 4: SỔ QUẢN LÝ NỢ
 # ==========================================
