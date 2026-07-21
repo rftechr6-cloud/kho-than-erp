@@ -899,23 +899,28 @@ elif menu == "Giao Hàng & Vận Tải":
                         if st.button("🗑️ Hủy Đơn", key=f"huy_don_dang_{r['id']}"): cb_huy_don(to_int(r['id'])); st.rerun()
 # ==========================================
 # ==========================================
+# ==========================================
 # PHÂN HỆ MỚI: SỔ QUỸ & LÃI LỖ (P&L)
 # ==========================================
 elif menu == "Sổ Quỹ & Lãi Lỗ":
     if 'edit_sq_id' not in st.session_state: st.session_state.edit_sq_id = None
     
     st.markdown("### 💵 Kế Toán Tổng Hợp & Báo Cáo Lãi Lỗ (P&L)")
-    tab_lap, tab_ls, tab_pl = st.tabs(["📝 Lập Phiếu Thu/Chi", "📚 Lịch Sử & Chỉnh Sửa", "📈 Báo Cáo Lãi Lỗ (P&L)"])
+    # Đã thêm Tab báo cáo Xe Tải
+    tab_lap, tab_ls, tab_pl, tab_xe = st.tabs(["📝 Lập Phiếu Thu/Chi", "📚 Lịch Sử & Chỉnh Sửa", "📈 Báo Cáo Lãi Lỗ (P&L)", "🚚 Báo Cáo Xe Tải"])
     
+    # Bổ sung các hạng mục chuyên nghiệp hơn
+    HANG_MUC_LIST = ["Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Chi phí xe tải (Dầu, phụ tùng)", "Thu từ chở thuê (Xe tải)", "Thu khác", "Chi khác", "Chi sửa xe/xăng dầu"]
+
     with tab_lap:
         with st.form("form_so_quy"):
             c1, c2 = st.columns(2)
             with c1:
                 loai_phieu = st.radio("Loại phiếu:", ["Chi", "Thu"], horizontal=True)
-                hang_muc = st.selectbox("Hạng mục:", ["Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Chi sửa xe/xăng dầu", "Thu khác", "Chi khác"])
+                hang_muc = st.selectbox("Hạng mục:", HANG_MUC_LIST)
             with c2:
                 so_tien = st.number_input("Số tiền (đ):", min_value=1000, value=100000, step=10000)
-                ghi_chu_sq = st.text_input("Ghi chú chi tiết:")
+                ghi_chu_sq = st.text_input("Ghi chú chi tiết (VD: Biển số xe, tên chuyến...):")
             
             if st.form_submit_button("Lưu Phiếu Giao Dịch", type="primary"):
                 ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
@@ -924,7 +929,6 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                     qid = get_next_id('so_quy', cur)
                     cur.execute("INSERT INTO so_quy (id, ngay, thoi_gian, loai_phieu, so_tien, hang_muc, nguoi_tao, ghi_chu) VALUES (?,?,?,?,?,?,?,?)", (qid, today_str, ts, loai_phieu, so_tien, hang_muc, st.session_state.current_user, ghi_chu_sq))
                     conn.commit()
-                # Cảnh báo rõ ràng để người dùng biết đã lưu thành công
                 st.success("✅ Đã ghi sổ thành công! (Vui lòng bấm sang tab 'Lịch Sử & Chỉnh Sửa' để kiểm tra lại giao dịch)")
                 st.rerun()
                 
@@ -941,7 +945,8 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                 c1, c2 = st.columns(2)
                 with c1:
                     e_lp = st.radio("Loại phiếu:", ["Chi", "Thu"], index=0 if sq_info['loai_phieu']=="Chi" else 1, horizontal=True)
-                    e_hm = st.selectbox("Hạng mục:", ["Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Chi sửa xe/xăng dầu", "Thu khác", "Chi khác"], index=["Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Chi sửa xe/xăng dầu", "Thu khác", "Chi khác"].index(sq_info['hang_muc']) if sq_info['hang_muc'] in ["Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Chi sửa xe/xăng dầu", "Thu khác", "Chi khác"] else 5)
+                    current_hm_index = HANG_MUC_LIST.index(sq_info['hang_muc']) if sq_info['hang_muc'] in HANG_MUC_LIST else 0
+                    e_hm = st.selectbox("Hạng mục:", HANG_MUC_LIST, index=current_hm_index)
                 with c2:
                     e_st = st.number_input("Số tiền (đ):", min_value=1000, value=to_int(sq_info['so_tien']), step=10000)
                     e_gc = st.text_input("Ghi chú chi tiết:", value=str(sq_info['ghi_chu'] if pd.notna(sq_info['ghi_chu']) else ""))
@@ -1034,7 +1039,65 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
             </table>
         </div>
         """, unsafe_allow_html=True)
-# ==========================================
+
+    # === TÍNH NĂNG MỚI: BÁO CÁO HIỆU QUẢ NUÔI XE TẢI ===
+    with tab_xe:
+        st.markdown("#### 🚚 Báo Cáo Hiệu Quả Kinh Doanh Xe Tải Chở Thuê")
+        st.info("💡 Hệ thống tự động lọc các khoản **Thu / Chi** thuộc hạng mục xe tải. Nó cũng tự động dò tìm các từ khóa cũ (như 'chở', 'cẩu', 'dầu', 'lốp') trong ghi chú cũ để bóc tách lợi nhuận chính xác nhất cho xe.")
+        
+        thang_loc_xe = st.selectbox("Chọn tháng xem báo cáo xe tải:", ["Tháng này", "Tháng trước", "Tất cả thời gian"])
+        
+        with get_connection() as conn:
+            df_xe = pd.read_sql_query("SELECT thoi_gian, loai_phieu, hang_muc, so_tien, ghi_chu FROM so_quy ORDER BY thoi_gian DESC", conn.connection)
+            
+        if not df_xe.empty:
+            df_xe['Date'] = pd.to_datetime(df_xe['thoi_gian'])
+            
+            # Lọc theo tháng
+            if thang_loc_xe == "Tháng này":
+                df_xe = df_xe[(df_xe['Date'].dt.month == now_dt.month) & (df_xe['Date'].dt.year == now_dt.year)]
+            elif thang_loc_xe == "Tháng trước":
+                prev_month = (now_dt.replace(day=1) - timedelta(days=1))
+                df_xe = df_xe[(df_xe['Date'].dt.month == prev_month.month) & (df_xe['Date'].dt.year == prev_month.year)]
+            
+            # Hàm thuật toán AI nhỏ để nhận diện giao dịch xe tải (gồm cả list hạng mục mới và dữ liệu lịch sử cũ)
+            def check_is_xe(row):
+                hm = str(row['hang_muc']).lower()
+                gc = str(row['ghi_chu']).lower()
+                
+                # Bắt theo Hạng mục mới
+                if "xe tải" in hm or "sửa xe" in hm: return True
+                
+                # Bắt tự động các dữ liệu Ghi chú cũ bạn từng nhập
+                if row['loai_phieu'] == "Thu" and ("chở" in gc or "cẩu" in gc or "xe" in gc): return True
+                if row['loai_phieu'] == "Chi" and ("dầu" in gc or "xe" in gc or "lốp" in gc): return True
+                
+                return False
+                
+            df_xe['is_xe'] = df_xe.apply(check_is_xe, axis=1)
+            df_xe_filtered = df_xe[df_xe['is_xe'] == True].copy()
+            
+            if not df_xe_filtered.empty:
+                df_xe_filtered['so_tien'] = df_xe_filtered['so_tien'].apply(to_float)
+                
+                thu_xe = df_xe_filtered[df_xe_filtered['loai_phieu'] == 'Thu']['so_tien'].sum()
+                chi_xe = df_xe_filtered[df_xe_filtered['loai_phieu'] == 'Chi']['so_tien'].sum()
+                lai_xe = thu_xe - chi_xe
+                
+                c1, c2, c3 = st.columns(3)
+                with c1: st.markdown(f"<div class='kpi-card border-green'><div class='kpi-label'>💵 Tổng Thu Chở Thuê</div><div class='kpi-value text-green'>+{fmt_vn(thu_xe)} đ</div></div>", unsafe_allow_html=True)
+                with c2: st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>⛽ Chi Phí Dầu/Phụ Tùng</div><div class='kpi-value text-red'>-{fmt_vn(chi_xe)} đ</div></div>", unsafe_allow_html=True)
+                with c3: st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lãi Ròng Của Xe</div><div class='kpi-value text-purple'>{fmt_vn(lai_xe)} đ</div></div>", unsafe_allow_html=True)
+                
+                st.markdown("##### 📜 Bảng Kê Chi Tiết Thu Chi Xe Tải")
+                df_display_xe = df_xe_filtered[['thoi_gian', 'loai_phieu', 'hang_muc', 'so_tien', 'ghi_chu']].rename(columns={
+                    'thoi_gian':'Thời Gian', 'loai_phieu':'Loại', 'hang_muc':'Hạng Mục', 'so_tien':'Số Tiền', 'ghi_chu':'Ghi Chú'
+                })
+                st.dataframe(df_display_xe.style.format({'Số Tiền': lambda x: fmt_vn(x)}), hide_index=True, use_container_width=True)
+            else:
+                st.info("Không có phát sinh thu/chi nào liên quan đến xe tải trong kỳ này.")
+        else:
+            st.info("Sổ quỹ đang trống.")
 # PHÂN HỆ 4: SỔ QUẢN LÝ NỢ
 # ==========================================
 elif menu == "Sổ Quản Lý Nợ":
