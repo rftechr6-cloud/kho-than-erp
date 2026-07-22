@@ -956,13 +956,24 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
     HANG_MUC_LIST = ["Thu từ chở thuê (Xe tải)", "Chi phí xe tải (Dầu, phụ tùng)", "Chi sửa xe/xăng dầu", "Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Thu khác", "Chi khác"]
 
     # =========================================================
-    # TAB 1: LẬP PHIẾU THU/CHI
+   # =========================================================
+    # TAB 1: LẬP PHIẾU THU/CHI (Đã sửa lỗi StreamlitAPIException)
     # =========================================================
     with tab_lap:
+        # --- ĐẶT RESET DỮ LIỆU Ở ĐẦU (TRƯỚC KHI TẠO WIDGET) ---
+        if st.session_state.get('reset_phieu_flag', False):
+            st.session_state.nhap_gc = ""
+            st.session_state.nhap_st = "100000"
+            st.session_state.nhap_no = False
+            if "nhap_tdt" in st.session_state:
+                st.session_state.nhap_tdt = "0"
+            st.session_state.reset_phieu_flag = False
+
         st.markdown("<div style='background:#f8fafc; padding:20px; border-radius:10px; border:1px solid #e2e8f0;'>", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         
-        if "nhap_st" not in st.session_state: st.session_state.nhap_st = "100000"
+        if "nhap_st" not in st.session_state: 
+            st.session_state.nhap_st = "100000"
         
         with c1:
             loai_phieu = st.radio("Loại phiếu:", ["Thu", "Chi"], horizontal=True, key="nhap_lp")
@@ -981,7 +992,8 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
                 is_debt = st.checkbox("⚠️ Khách chuyến này còn nợ / Chưa thanh toán đủ?", key="nhap_no")
                 if is_debt:
                     trang_thai = "Đang nợ"
-                    if "nhap_tdt" not in st.session_state: st.session_state.nhap_tdt = "0"
+                    if "nhap_tdt" not in st.session_state: 
+                        st.session_state.nhap_tdt = "0"
                     tien_da_thu_str = st.text_input("Số tiền khách ĐÃ TRẢ TRƯỚC (Nhập 0 nếu nợ 100%):", key="nhap_tdt")
                     tien_da_thu = clean_money(tien_da_thu_str)
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -996,15 +1008,11 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
                             (qid, today_str, ts, loai_phieu, so_tien, hang_muc, st.session_state.get('current_user', 'Admin'), ghi_chu_sq, trang_thai, tien_da_thu))
                 conn.commit()
                 
-            st.session_state.nhap_gc = ""
-            st.session_state.nhap_st = "100000"
-            st.session_state.nhap_no = False
-            if "nhap_tdt" in st.session_state: st.session_state.nhap_tdt = "0"
-            
+            # Đặt cờ báo hiệu reset form cho lần rerun tiếp theo
+            st.session_state.reset_phieu_flag = True
             st.success(f"Đã ghi sổ chuyến xe! Trạng thái: **{trang_thai}**")
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
-
     # =========================================================
     # TAB 2: LỊCH SỬ SỔ QUỸ & CHỈNH SỬA
     # =========================================================
