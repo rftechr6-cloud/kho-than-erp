@@ -905,7 +905,7 @@ elif menu == "Giao Hàng & Vận Tải":
 elif menu == "Sổ Quỹ & Lãi Lỗ":
     if 'edit_sq_id' not in st.session_state: st.session_state.edit_sq_id = None
     
-    # --- TỰ ĐỘNG CẬP NHẬT CẤU TRÚC BẢNG (Không mất dữ liệu cũ) ---
+    # --- TỰ ĐỘNG CẬP NHẬT CẤU TRÚC BẢNG ---
     with get_connection() as conn:
         cur = conn.cursor()
         try: cur.execute("ALTER TABLE so_quy ADD COLUMN trang_thai TEXT DEFAULT 'Hoàn thành'")
@@ -919,7 +919,6 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
 
     st.markdown("### 💵 Kế Toán Tổng Hợp, Công Nợ & Báo Cáo Xe Tải")
     
-    # Đưa Lập Phiếu Thu/Chi lên vị trí ĐẦU TIÊN
     tab_lap, tab_ls, tab_xe, tab_pl = st.tabs([
         "📝 Lập Phiếu Thu/Chi", 
         "📚 Lịch Sử Sổ Quỹ", 
@@ -930,94 +929,96 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
     HANG_MUC_LIST = ["Thu từ chở thuê (Xe tải)", "Chi phí xe tải (Dầu, phụ tùng)", "Chi sửa xe/xăng dầu", "Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Thu khác", "Chi khác"]
 
     # =========================================================
-    # TAB 1: LẬP PHIẾU THU/CHI (ĐỨNG ĐẦU TẠO PHIẾU CỰC NHANH)
+    # TAB 1: LẬP PHIẾU THU/CHI (ĐÃ BỎ FORM - TƯƠNG TÁC TỨC THÌ)
     # =========================================================
     with tab_lap:
-        with st.form("form_so_quy"):
-            c1, c2 = st.columns(2)
-            with c1:
-                loai_phieu = st.radio("Loại phiếu:", ["Thu", "Chi"], horizontal=True)
-                hang_muc = st.selectbox("Hạng mục:", HANG_MUC_LIST)
-                ghi_chu_sq = st.text_input("Ghi chú chuyến xe / nội dung (VD: Khách A, Biển số xe, Tên chuyến...):")
+        st.markdown("<div style='background:#f8fafc; padding:20px; border-radius:10px; border:1px solid #e2e8f0;'>", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            loai_phieu = st.radio("Loại phiếu:", ["Thu", "Chi"], horizontal=True, key="nhap_lp")
+            hang_muc = st.selectbox("Hạng mục:", HANG_MUC_LIST, key="nhap_hm")
+            ghi_chu_sq = st.text_input("Ghi chú chuyến xe / nội dung (VD: Khách A, Biển số xe, Tên chuyến...):", key="nhap_gc")
+        
+        with c2:
+            so_tien = st.number_input("Tổng tiền giao dịch / Tổng cước (đ):", min_value=1000, value=100000, step=10000, key="nhap_st")
             
-            with c2:
-                so_tien = st.number_input("Tổng tiền giao dịch / Tổng cước (đ):", min_value=1000, value=100000, step=10000)
-                
-                trang_thai = "Hoàn thành"
-                tien_da_thu = so_tien
-                
-                # Cấu hình nợ trực tiếp lúc tạo phiếu
-                if loai_phieu == "Thu":
-                    st.markdown("<div style='padding:10px; background:#fff3cd; border-radius:5px;'>", unsafe_allow_html=True)
-                    is_debt = st.checkbox("⚠️ Khách chuyến này còn nợ / Chưa thanh toán đủ?")
-                    if is_debt:
-                        trang_thai = "Đang nợ"
-                        tien_da_thu = st.number_input("Số tiền khách ĐÃ TRẢ TRƯỚC (Nhập 0 nếu nợ 100%, hoặc nhập số tiền trả 1 phần):", min_value=0, max_value=int(so_tien), value=0, step=10000)
-                    st.markdown("</div>", unsafe_allow_html=True)
+            trang_thai = "Hoàn thành"
+            tien_da_thu = so_tien
+            
+            if loai_phieu == "Thu":
+                st.markdown("<div style='padding:10px; background:#fff3cd; border-radius:5px;'>", unsafe_allow_html=True)
+                is_debt = st.checkbox("⚠️ Khách chuyến này còn nợ / Chưa thanh toán đủ?", key="nhap_no")
+                if is_debt:
+                    trang_thai = "Đang nợ"
+                    tien_da_thu = st.number_input("Số tiền khách ĐÃ TRẢ TRƯỚC (Nhập 0 nếu nợ 100%, hoặc nhập số tiền trả 1 phần):", min_value=0, max_value=int(so_tien), value=0, step=10000, key="nhap_tdt")
+                st.markdown("</div>", unsafe_allow_html=True)
 
-            if st.form_submit_button("Lưu Phiếu Giao Dịch", type="primary"):
-                ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-                with get_connection() as conn:
-                    cur = conn.cursor()
-                    qid = get_next_id('so_quy', cur)
-                    cur.execute("INSERT INTO so_quy (id, ngay, thoi_gian, loai_phieu, so_tien, hang_muc, nguoi_tao, ghi_chu, trang_thai, tien_da_thu) VALUES (?,?,?,?,?,?,?,?,?,?)", 
-                                (qid, today_str, ts, loai_phieu, so_tien, hang_muc, st.session_state.current_user, ghi_chu_sq, trang_thai, tien_da_thu))
-                    conn.commit()
-                st.success(f"✅ Đã ghi sổ chuyến xe! Trạng thái: **{trang_thai}**")
-                st.rerun()
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("✅ LƯU PHIẾU GIAO DỊCH", type="primary", use_container_width=True):
+            ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+            with get_connection() as conn:
+                cur = conn.cursor()
+                qid = get_next_id('so_quy', cur)
+                cur.execute("INSERT INTO so_quy (id, ngay, thoi_gian, loai_phieu, so_tien, hang_muc, nguoi_tao, ghi_chu, trang_thai, tien_da_thu) VALUES (?,?,?,?,?,?,?,?,?,?)", 
+                            (qid, today_str, ts, loai_phieu, so_tien, hang_muc, st.session_state.current_user, ghi_chu_sq, trang_thai, tien_da_thu))
+                conn.commit()
+            st.success(f"Đã ghi sổ chuyến xe! Trạng thái: **{trang_thai}**")
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # =========================================================
-    # TAB 2: LỊCH SỬ SỔ QUỸ (KÈM NÚT SỬA ✏️ VÀ XÓA ❌)
+    # TAB 2: LỊCH SỬ SỔ QUỸ (ĐÃ BỎ FORM PHẦN SỬA - KHÔNG BỊ TRÔI SỐ)
     # =========================================================
     with tab_ls:
         with get_connection() as conn:
             df_sq = pd.read_sql_query("SELECT id, thoi_gian, loai_phieu, hang_muc, so_tien, tien_da_thu, trang_thai, nguoi_tao, ghi_chu FROM so_quy ORDER BY id DESC", conn.connection)
         
-        # --- KHUNG GIAO DIỆN CHỈNH SỬA PHIẾU KHI BẤM NÚT ✏️ ---
+        # --- KHUNG CHỈNH SỬA TỰ DO (KHÔNG FORM) ---
         if st.session_state.edit_sq_id is not None:
             edit_id = st.session_state.edit_sq_id
             sq_info = df_sq[df_sq['id'] == edit_id].iloc[0]
-            st.markdown(f"<div style='background:#fef3c7; padding:15px; border-radius:8px; border:1px solid #f59e0b; margin-bottom:15px;'><h4>✏️ ĐANG CHỈNH SỬA PHIẾU ID #{edit_id}</h4></div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background:#fef3c7; padding:15px; border-radius:8px; border:1px solid #f59e0b; margin-bottom:15px;'><h4>✏️ ĐANG CHỈNH SỬA PHIẾU ID #{edit_id}</h4>", unsafe_allow_html=True)
             
-            with st.form("f_edit_sq"):
-                c1, c2 = st.columns(2)
-                with c1:
-                    e_lp = st.radio("Loại phiếu:", ["Thu", "Chi"], index=0 if sq_info['loai_phieu']=="Thu" else 1, horizontal=True)
-                    current_hm_index = HANG_MUC_LIST.index(sq_info['hang_muc']) if sq_info['hang_muc'] in HANG_MUC_LIST else 0
-                    e_hm = st.selectbox("Hạng mục:", HANG_MUC_LIST, index=current_hm_index)
-                    e_gc = st.text_input("Ghi chú chi tiết:", value=str(sq_info['ghi_chu'] if pd.notna(sq_info['ghi_chu']) else ""))
+            c1, c2 = st.columns(2)
+            with c1:
+                e_lp = st.radio("Loại phiếu:", ["Thu", "Chi"], index=0 if sq_info['loai_phieu']=="Thu" else 1, horizontal=True, key="edit_lp")
+                current_hm_index = HANG_MUC_LIST.index(sq_info['hang_muc']) if sq_info['hang_muc'] in HANG_MUC_LIST else 0
+                e_hm = st.selectbox("Hạng mục:", HANG_MUC_LIST, index=current_hm_index, key="edit_hm")
+                e_gc = st.text_input("Ghi chú chi tiết:", value=str(sq_info['ghi_chu'] if pd.notna(sq_info['ghi_chu']) else ""), key="edit_gc")
+            
+            with c2:
+                e_st = st.number_input("Tổng tiền cước / giao dịch (đ):", min_value=1000, value=to_int(sq_info['so_tien']), step=10000, key="edit_st")
                 
-                with c2:
-                    e_st = st.number_input("Tổng tiền cước / giao dịch (đ):", min_value=1000, value=to_int(sq_info['so_tien']), step=10000)
+                e_dt = to_int(sq_info['tien_da_thu']) if pd.notna(sq_info['tien_da_thu']) else e_st
+                if e_lp == "Thu":
+                    # Đảm bảo giá trị đã trả không lớn hơn tổng tiền lúc khởi tạo
+                    safe_dt_value = int(e_dt) if int(e_dt) <= int(e_st) else int(e_st)
+                    e_dt_input = st.number_input("Số tiền thực tế KHÁCH ĐÃ TRẢ (đ):", min_value=0, max_value=int(e_st), value=safe_dt_value, step=10000, key="edit_dt")
+                else:
+                    e_dt_input = e_st
                     
-                    e_dt = to_int(sq_info['tien_da_thu']) if pd.notna(sq_info['tien_da_thu']) else e_st
-                    if e_lp == "Thu":
-                        e_dt = st.number_input("Số tiền thực tế KHÁCH ĐÃ TRẢ (đ):", min_value=0, max_value=int(e_st), value=int(e_dt), step=10000)
-                    else:
-                        e_dt = e_st
+            bc1, bc2 = st.columns([1, 5])
+            with bc1:
+                if st.button("💾 LƯU SỬA", type="primary", key="btn_luu_sua"):
+                    e_tt = "Hoàn thành"
+                    if e_lp == "Thu" and e_dt_input < e_st:
+                        e_tt = "Đang nợ"
                         
-                bc1, bc2 = st.columns([1, 5])
-                with bc1:
-                    if st.form_submit_button("💾 LƯU SỬA", type="primary"):
-                        # Tự động tính toán lại trạng thái nợ dựa vào số tiền đã trả
-                        e_tt = "Hoàn thành"
-                        if e_lp == "Thu" and e_dt < e_st:
-                            e_tt = "Đang nợ"
-                            
-                        with get_connection() as conn:
-                            conn.execute("UPDATE so_quy SET loai_phieu=?, hang_muc=?, so_tien=?, tien_da_thu=?, trang_thai=?, ghi_chu=? WHERE id=?", 
-                                         (e_lp, e_hm, e_st, e_dt, e_tt, e_gc, edit_id))
-                            conn.commit()
-                        st.session_state.edit_sq_id = None
-                        st.success("✅ Đã cập nhật thành công!")
-                        st.rerun()
-                with bc2:
-                    if st.form_submit_button("Hủy bỏ"): 
-                        st.session_state.edit_sq_id = None
-                        st.rerun()
+                    with get_connection() as conn:
+                        conn.execute("UPDATE so_quy SET loai_phieu=?, hang_muc=?, so_tien=?, tien_da_thu=?, trang_thai=?, ghi_chu=? WHERE id=?", 
+                                     (e_lp, e_hm, e_st, e_dt_input, e_tt, e_gc, edit_id))
+                        conn.commit()
+                    st.session_state.edit_sq_id = None
+                    st.success("✅ Đã cập nhật thành công!")
+                    st.rerun()
+            with bc2:
+                if st.button("Hủy bỏ", key="btn_huy_sua"): 
+                    st.session_state.edit_sq_id = None
+                    st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
             st.markdown("---")
 
-        # --- DANH SÁCH LỊCH SỬ KÈM NÚT SỬA VÀ XÓA ---
+        # --- DANH SÁCH LỊCH SỬ ---
         st.markdown("#### 📋 Lịch Sử Giao Dịch Tất Cả Hạng Mục")
         if not df_sq.empty:
             for _, r in df_sq.head(100).iterrows():
@@ -1029,7 +1030,6 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                     cc2.markdown(f"<b style='color:{color};'>{r['loai_phieu']}</b>", unsafe_allow_html=True)
                     cc3.write(r['hang_muc'])
                     
-                    # Hiển thị số tiền & Tình trạng nợ
                     if r['trang_thai'] == 'Đang nợ':
                         con_no = float(r['so_tien']) - float(r['tien_da_thu'])
                         cc4.markdown(f"Cước: <b>{fmt_vn(r['so_tien'])} đ</b><br><span style='color:#dc2626; font-size:12px; font-weight:bold;'>⚠️ Còn nợ: {fmt_vn(con_no)}đ</span>", unsafe_allow_html=True)
@@ -1039,13 +1039,10 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                     note = r['ghi_chu'] if pd.notna(r['ghi_chu']) and r['ghi_chu'] else "-"
                     cc5.write(note)
                     
-                    # NÚT SỬA ✏️
                     with cc6:
                         if st.button("✏️", key=f"esq_{r['id']}", help="Sửa phiếu này"):
                             st.session_state.edit_sq_id = r['id']
                             st.rerun()
-                    
-                    # NÚT XÓA ❌
                     with cc7:
                         if st.button("❌", key=f"dsq_{r['id']}", help="Xóa phiếu này"): 
                             with get_connection() as c: 
