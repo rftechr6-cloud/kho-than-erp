@@ -899,7 +899,8 @@ elif menu == "Giao Hàng & Vận Tải":
                         if st.button("🗑️ Hủy Đơn", key=f"huy_don_dang_{r['id']}"): cb_huy_don(to_int(r['id'])); st.rerun()
 # ==========================================
 # =========================================================
-# PHÂN HỆ MỚI: SỔ QUỸ, QUẢN LÝ CÔNG NỢ & BÁO CÁO XE TẢI (P&L)
+# =========================================================
+# PHÂN HỆ: SỔ QUỸ, CÔNG NỢ & BÁO CÁO XE TẢI (P&L)
 # =========================================================
 elif menu == "Sổ Quỹ & Lãi Lỗ":
     if 'edit_sq_id' not in st.session_state: st.session_state.edit_sq_id = None
@@ -918,121 +919,18 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
 
     st.markdown("### 💵 Kế Toán Tổng Hợp, Công Nợ & Báo Cáo Xe Tải")
     
-    tab_xe, tab_lap, tab_ls, tab_pl = st.tabs([
-        "🚚 Báo Cáo & Quản Lý Xe Tải", 
+    # Đưa Lập Phiếu Thu/Chi lên vị trí ĐẦU TIÊN
+    tab_lap, tab_ls, tab_xe, tab_pl = st.tabs([
         "📝 Lập Phiếu Thu/Chi", 
         "📚 Lịch Sử Sổ Quỹ", 
+        "🚚 Báo Cáo & Quản Lý Xe Tải", 
         "📈 Báo Cáo Lãi Lỗ (P&L)"
     ])
     
     HANG_MUC_LIST = ["Thu từ chở thuê (Xe tải)", "Chi phí xe tải (Dầu, phụ tùng)", "Chi sửa xe/xăng dầu", "Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Thu khác", "Chi khác"]
 
     # =========================================================
-    # TAB 1: BÁO CÁO & QUẢN LÝ XE TẢI (TÍCH HỢP TRỰC TIẾP CÔNG NỢ)
-    # =========================================================
-    with tab_xe:
-        st.markdown("#### 🚚 Báo Cáo Hiệu Quả & Công Nợ Xe Tải")
-        thang_loc_xe = st.selectbox("Chọn chu kỳ báo cáo:", ["Tháng này", "Tháng trước", "Tất cả thời gian"], key='loc_xe')
-        
-        with get_connection() as conn:
-            df_xe = pd.read_sql_query("SELECT id, thoi_gian, loai_phieu, hang_muc, so_tien, tien_da_thu, trang_thai, ghi_chu FROM so_quy ORDER BY thoi_gian DESC", conn.connection)
-            
-        if not df_xe.empty:
-            df_xe['Date'] = pd.to_datetime(df_xe['thoi_gian'])
-            if thang_loc_xe == "Tháng này":
-                df_xe = df_xe[(df_xe['Date'].dt.month == now_dt.month) & (df_xe['Date'].dt.year == now_dt.year)]
-            elif thang_loc_xe == "Tháng trước":
-                prev_month = (now_dt.replace(day=1) - timedelta(days=1))
-                df_xe = df_xe[(df_xe['Date'].dt.month == prev_month.month) & (df_xe['Date'].dt.year == prev_month.year)]
-            
-            # Hàm nhận diện giao dịch Xe tải
-            def check_is_xe(row):
-                hm = str(row['hang_muc']).lower()
-                gc = str(row['ghi_chu']).lower()
-                if "xe tải" in hm or "sửa xe" in hm: return True
-                if row['loai_phieu'] == "Thu" and ("chở" in gc or "cẩu" in gc or "xe" in gc): return True
-                if row['loai_phieu'] == "Chi" and ("dầu" in gc or "xe" in gc or "lốp" in gc): return True
-                return False
-                
-            df_xe['is_xe'] = df_xe.apply(check_is_xe, axis=1)
-            df_xe_filtered = df_xe[df_xe['is_xe'] == True].copy()
-            
-            if not df_xe_filtered.empty:
-                df_xe_filtered['so_tien'] = df_xe_filtered['so_tien'].apply(to_float)
-                df_xe_filtered['tien_da_thu'] = df_xe_filtered['tien_da_thu'].apply(to_float)
-                df_xe_filtered['con_no'] = df_xe_filtered['so_tien'] - df_xe_filtered['tien_da_thu']
-                
-                # Thống kê tổng quan
-                df_thu = df_xe_filtered[df_xe_filtered['loai_phieu'] == 'Thu']
-                tong_cuoc = df_thu['so_tien'].sum()
-                da_thu = df_thu['tien_da_thu'].sum()
-                dang_no = df_thu['con_no'].sum()
-                
-                chi_xe = df_xe_filtered[df_xe_filtered['loai_phieu'] == 'Chi']['so_tien'].sum()
-                lai_thuc_te = da_thu - chi_xe
-                
-                # Thẻ KPI Thống Kê Khoa Học
-                c1, c2, c3, c4 = st.columns(4)
-                with c1: st.markdown(f"<div class='kpi-card border-blue'><div class='kpi-label'>🚚 Tổng Cước Chuyến</div><div class='kpi-value'>{fmt_vn(tong_cuoc)} đ</div></div>", unsafe_allow_html=True)
-                with c2: st.markdown(f"<div class='kpi-card border-green'><div class='kpi-label'>💵 Đã Thu Tiền Mặt</div><div class='kpi-value text-green'>+{fmt_vn(da_thu)} đ</div></div>", unsafe_allow_html=True)
-                with c3: st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>🚨 Khách Còn Nợ</div><div class='kpi-value text-red'>{fmt_vn(dang_no)} đ</div></div>", unsafe_allow_html=True)
-                with c4: st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lãi Thực Trong Két</div><div class='kpi-value text-purple'>{fmt_vn(lai_thuc_te)} đ</div></div>", unsafe_allow_html=True)
-                
-                st.markdown("---")
-                st.markdown("##### 📜 Bảng Kê Chi Tiết & Trạng Thái Thanh Toán Chuyến Xe")
-                
-                # Bảng chi tiết chuyến xe tích hợp Nợ & Thu tiền tại chỗ
-                for _, r in df_xe_filtered.iterrows():
-                    with st.container():
-                        col_time, col_type, col_info, col_money, col_status, col_action = st.columns([1.5, 0.8, 2.5, 2, 1.5, 1.5])
-                        
-                        col_time.markdown(f"<span style='font-size:13px;'>{r['thoi_gian']}</span>", unsafe_allow_html=True)
-                        
-                        if r['loai_phieu'] == 'Thu':
-                            col_type.markdown("<b style='color:#16a34a;'>Thu</b>", unsafe_allow_html=True)
-                        else:
-                            col_type.markdown("<b style='color:#dc2626;'>Chi</b>", unsafe_allow_html=True)
-                            
-                        note = r['ghi_chu'] if pd.notna(r['ghi_chu']) and r['ghi_chu'] else r['hang_muc']
-                        col_info.markdown(f"**{note}**")
-                        
-                        # Hiển thị số tiền & nợ
-                        if r['loai_phieu'] == 'Thu':
-                            col_money.markdown(f"Cước: **{fmt_vn(r['so_tien'])} đ**<br><small style='color:#16a34a;'>Đã thu: {fmt_vn(r['tien_da_thu'])} đ</small>", unsafe_allow_html=True)
-                        else:
-                            col_money.markdown(f"Chi: <b style='color:#dc2626;'>-{fmt_vn(r['so_tien'])} đ</b>", unsafe_allow_html=True)
-                        
-                        # Trạng thái Nợ / Hoàn thành
-                        if r['loai_phieu'] == 'Thu':
-                            if r['con_no'] > 0:
-                                col_status.markdown(f"<span style='background:#fee2e2; color:#b91c1c; padding:3px 8px; border-radius:5px; font-weight:bold; font-size:12px;'>⚠️ Đang nợ: {fmt_vn(r['con_no'])}đ</span>", unsafe_allow_html=True)
-                            else:
-                                col_status.markdown("<span style='background:#dcfce7; color:#15803d; padding:3px 8px; border-radius:5px; font-weight:bold; font-size:12px;'>✅ Hoàn thành</span>", unsafe_allow_html=True)
-                        else:
-                            col_status.markdown("<span style='color:#6b7280; font-size:12px;'>Đã chi</span>", unsafe_allow_html=True)
-                            
-                        # Thao tác trả nợ trực tiếp trên dòng
-                        with col_action:
-                            if r['loai_phieu'] == 'Thu' and r['con_no'] > 0:
-                                with st.popover("💸 Trả tiền"):
-                                    st.caption(f"Cập nhật trả nợ chuyến: {r['ghi_chu']}")
-                                    tra_them = st.number_input("Số tiền khách trả đợt này:", min_value=0, max_value=int(r['con_no']), value=int(r['con_no']), step=10000, key=f"tra_{r['id']}")
-                                    if st.button("Xác nhận thu", type="primary", key=f"btn_tra_{r['id']}"):
-                                        new_paid = float(r['tien_da_thu']) + float(tra_them)
-                                        new_status = 'Hoàn thành' if new_paid >= float(r['so_tien']) else 'Đang nợ'
-                                        with get_connection() as conn:
-                                            conn.execute("UPDATE so_quy SET tien_da_thu = ?, trang_thai = ? WHERE id = ?", (new_paid, new_status, r['id']))
-                                            conn.commit()
-                                        st.success("Đã cập nhật thanh toán!")
-                                        st.rerun()
-                        st.divider()
-            else:
-                st.info("Chưa có phát sinh thu/chi chuyến xe nào trong kỳ này.")
-        else:
-            st.info("Sổ quỹ đang trống.")
-
-    # =========================================================
-    # TAB 2: LẬP PHIẾU THU/CHI (NHẬP ĐƯỢC NỢ TRỰC TIẾP LÚC TẠO)
+    # TAB 1: LẬP PHIẾU THU/CHI (ĐỨNG ĐẦU TẠO PHIẾU CỰC NHANH)
     # =========================================================
     with tab_lap:
         with st.form("form_so_quy"):
@@ -1069,33 +967,87 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                 st.rerun()
 
     # =========================================================
-    # TAB 3: LỊCH SỬ TỔNG HỢP SỔ QUỸ
+    # TAB 2: LỊCH SỬ SỔ QUỸ (KÈM NÚT SỬA ✏️ VÀ XÓA ❌)
     # =========================================================
     with tab_ls:
         with get_connection() as conn:
             df_sq = pd.read_sql_query("SELECT id, thoi_gian, loai_phieu, hang_muc, so_tien, tien_da_thu, trang_thai, nguoi_tao, ghi_chu FROM so_quy ORDER BY id DESC", conn.connection)
         
+        # --- KHUNG GIAO DIỆN CHỈNH SỬA PHIẾU KHI BẤM NÚT ✏️ ---
+        if st.session_state.edit_sq_id is not None:
+            edit_id = st.session_state.edit_sq_id
+            sq_info = df_sq[df_sq['id'] == edit_id].iloc[0]
+            st.markdown(f"<div style='background:#fef3c7; padding:15px; border-radius:8px; border:1px solid #f59e0b; margin-bottom:15px;'><h4>✏️ ĐANG CHỈNH SỬA PHIẾU ID #{edit_id}</h4></div>", unsafe_allow_html=True)
+            
+            with st.form("f_edit_sq"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    e_lp = st.radio("Loại phiếu:", ["Thu", "Chi"], index=0 if sq_info['loai_phieu']=="Thu" else 1, horizontal=True)
+                    current_hm_index = HANG_MUC_LIST.index(sq_info['hang_muc']) if sq_info['hang_muc'] in HANG_MUC_LIST else 0
+                    e_hm = st.selectbox("Hạng mục:", HANG_MUC_LIST, index=current_hm_index)
+                    e_gc = st.text_input("Ghi chú chi tiết:", value=str(sq_info['ghi_chu'] if pd.notna(sq_info['ghi_chu']) else ""))
+                
+                with c2:
+                    e_st = st.number_input("Tổng tiền cước / giao dịch (đ):", min_value=1000, value=to_int(sq_info['so_tien']), step=10000)
+                    
+                    e_dt = to_int(sq_info['tien_da_thu']) if pd.notna(sq_info['tien_da_thu']) else e_st
+                    if e_lp == "Thu":
+                        e_dt = st.number_input("Số tiền thực tế KHÁCH ĐÃ TRẢ (đ):", min_value=0, max_value=int(e_st), value=int(e_dt), step=10000)
+                    else:
+                        e_dt = e_st
+                        
+                bc1, bc2 = st.columns([1, 5])
+                with bc1:
+                    if st.form_submit_button("💾 LƯU SỬA", type="primary"):
+                        # Tự động tính toán lại trạng thái nợ dựa vào số tiền đã trả
+                        e_tt = "Hoàn thành"
+                        if e_lp == "Thu" and e_dt < e_st:
+                            e_tt = "Đang nợ"
+                            
+                        with get_connection() as conn:
+                            conn.execute("UPDATE so_quy SET loai_phieu=?, hang_muc=?, so_tien=?, tien_da_thu=?, trang_thai=?, ghi_chu=? WHERE id=?", 
+                                         (e_lp, e_hm, e_st, e_dt, e_tt, e_gc, edit_id))
+                            conn.commit()
+                        st.session_state.edit_sq_id = None
+                        st.success("✅ Đã cập nhật thành công!")
+                        st.rerun()
+                with bc2:
+                    if st.form_submit_button("Hủy bỏ"): 
+                        st.session_state.edit_sq_id = None
+                        st.rerun()
+            st.markdown("---")
+
+        # --- DANH SÁCH LỊCH SỬ KÈM NÚT SỬA VÀ XÓA ---
         st.markdown("#### 📋 Lịch Sử Giao Dịch Tất Cả Hạng Mục")
         if not df_sq.empty:
             for _, r in df_sq.head(100).iterrows():
                 with st.container():
-                    cc1, cc2, cc3, cc4, cc5, cc6 = st.columns([1.5, 0.8, 2, 2.5, 2.5, 0.5])
+                    cc1, cc2, cc3, cc4, cc5, cc6, cc7 = st.columns([1.5, 0.8, 2, 2.5, 2.5, 0.5, 0.5])
                     cc1.markdown(f"<span style='font-size:13px;'>{r['thoi_gian']}</span>", unsafe_allow_html=True)
                     
                     color = "#16a34a" if r['loai_phieu'] == "Thu" else "#dc2626"
                     cc2.markdown(f"<b style='color:{color};'>{r['loai_phieu']}</b>", unsafe_allow_html=True)
                     cc3.write(r['hang_muc'])
                     
+                    # Hiển thị số tiền & Tình trạng nợ
                     if r['trang_thai'] == 'Đang nợ':
-                        cc4.markdown(f"Cước: <b>{fmt_vn(r['so_tien'])} đ</b><br><span style='color:#dc2626; font-size:12px;'>Còn nợ: {fmt_vn(float(r['so_tien'])-float(r['tien_da_thu']))}đ</span>", unsafe_allow_html=True)
+                        con_no = float(r['so_tien']) - float(r['tien_da_thu'])
+                        cc4.markdown(f"Cước: <b>{fmt_vn(r['so_tien'])} đ</b><br><span style='color:#dc2626; font-size:12px; font-weight:bold;'>⚠️ Còn nợ: {fmt_vn(con_no)}đ</span>", unsafe_allow_html=True)
                     else:
                         cc4.markdown(f"<b>{fmt_vn(r['so_tien'])} đ</b><br><span style='color:#16a34a; font-size:12px;'>Đã thanh toán</span>", unsafe_allow_html=True)
                         
                     note = r['ghi_chu'] if pd.notna(r['ghi_chu']) and r['ghi_chu'] else "-"
                     cc5.write(note)
                     
+                    # NÚT SỬA ✏️
                     with cc6:
-                        if st.button("❌", key=f"dsq_{r['id']}"): 
+                        if st.button("✏️", key=f"esq_{r['id']}", help="Sửa phiếu này"):
+                            st.session_state.edit_sq_id = r['id']
+                            st.rerun()
+                    
+                    # NÚT XÓA ❌
+                    with cc7:
+                        if st.button("❌", key=f"dsq_{r['id']}", help="Xóa phiếu này"): 
                             with get_connection() as c: 
                                 c.execute("DELETE FROM so_quy WHERE id=?", (r['id'],))
                                 c.commit()
@@ -1103,6 +1055,103 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                     st.divider()
         else:
             st.info("Chưa có dữ liệu.")
+
+    # =========================================================
+    # TAB 3: BÁO CÁO & QUẢN LÝ XE TẢI
+    # =========================================================
+    with tab_xe:
+        st.markdown("#### 🚚 Báo Cáo Hiệu Quả & Công Nợ Xe Tải")
+        thang_loc_xe = st.selectbox("Chọn chu kỳ báo cáo:", ["Tháng này", "Tháng trước", "Tất cả thời gian"], key='loc_xe')
+        
+        with get_connection() as conn:
+            df_xe = pd.read_sql_query("SELECT id, thoi_gian, loai_phieu, hang_muc, so_tien, tien_da_thu, trang_thai, ghi_chu FROM so_quy ORDER BY thoi_gian DESC", conn.connection)
+            
+        if not df_xe.empty:
+            df_xe['Date'] = pd.to_datetime(df_xe['thoi_gian'])
+            if thang_loc_xe == "Tháng này":
+                df_xe = df_xe[(df_xe['Date'].dt.month == now_dt.month) & (df_xe['Date'].dt.year == now_dt.year)]
+            elif thang_loc_xe == "Tháng trước":
+                prev_month = (now_dt.replace(day=1) - timedelta(days=1))
+                df_xe = df_xe[(df_xe['Date'].dt.month == prev_month.month) & (df_xe['Date'].dt.year == prev_month.year)]
+            
+            def check_is_xe(row):
+                hm = str(row['hang_muc']).lower()
+                gc = str(row['ghi_chu']).lower()
+                if "xe tải" in hm or "sửa xe" in hm: return True
+                if row['loai_phieu'] == "Thu" and ("chở" in gc or "cẩu" in gc or "xe" in gc): return True
+                if row['loai_phieu'] == "Chi" and ("dầu" in gc or "xe" in gc or "lốp" in gc): return True
+                return False
+                
+            df_xe['is_xe'] = df_xe.apply(check_is_xe, axis=1)
+            df_xe_filtered = df_xe[df_xe['is_xe'] == True].copy()
+            
+            if not df_xe_filtered.empty:
+                df_xe_filtered['so_tien'] = df_xe_filtered['so_tien'].apply(to_float)
+                df_xe_filtered['tien_da_thu'] = df_xe_filtered['tien_da_thu'].apply(to_float)
+                df_xe_filtered['con_no'] = df_xe_filtered['so_tien'] - df_xe_filtered['tien_da_thu']
+                
+                df_thu = df_xe_filtered[df_xe_filtered['loai_phieu'] == 'Thu']
+                tong_cuoc = df_thu['so_tien'].sum()
+                da_thu = df_thu['tien_da_thu'].sum()
+                dang_no = df_thu['con_no'].sum()
+                
+                chi_xe = df_xe_filtered[df_xe_filtered['loai_phieu'] == 'Chi']['so_tien'].sum()
+                lai_thuc_te = da_thu - chi_xe
+                
+                c1, c2, c3, c4 = st.columns(4)
+                with c1: st.markdown(f"<div class='kpi-card border-blue'><div class='kpi-label'>🚚 Tổng Cước Chuyến</div><div class='kpi-value'>{fmt_vn(tong_cuoc)} đ</div></div>", unsafe_allow_html=True)
+                with c2: st.markdown(f"<div class='kpi-card border-green'><div class='kpi-label'>💵 Đã Thu Tiền Mặt</div><div class='kpi-value text-green'>+{fmt_vn(da_thu)} đ</div></div>", unsafe_allow_html=True)
+                with c3: st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>🚨 Khách Còn Nợ</div><div class='kpi-value text-red'>{fmt_vn(dang_no)} đ</div></div>", unsafe_allow_html=True)
+                with c4: st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lãi Thực Trong Két</div><div class='kpi-value text-purple'>{fmt_vn(lai_thuc_te)} đ</div></div>", unsafe_allow_html=True)
+                
+                st.markdown("---")
+                st.markdown("##### 📜 Bảng Kê Chi Tiết & Trạng Thái Thanh Toán Chuyến Xe")
+                
+                for _, r in df_xe_filtered.iterrows():
+                    with st.container():
+                        col_time, col_type, col_info, col_money, col_status, col_action = st.columns([1.5, 0.8, 2.5, 2, 1.5, 1.5])
+                        
+                        col_time.markdown(f"<span style='font-size:13px;'>{r['thoi_gian']}</span>", unsafe_allow_html=True)
+                        
+                        if r['loai_phieu'] == 'Thu':
+                            col_type.markdown("<b style='color:#16a34a;'>Thu</b>", unsafe_allow_html=True)
+                        else:
+                            col_type.markdown("<b style='color:#dc2626;'>Chi</b>", unsafe_allow_html=True)
+                            
+                        note = r['ghi_chu'] if pd.notna(r['ghi_chu']) and r['ghi_chu'] else r['hang_muc']
+                        col_info.markdown(f"**{note}**")
+                        
+                        if r['loai_phieu'] == 'Thu':
+                            col_money.markdown(f"Cước: **{fmt_vn(r['so_tien'])} đ**<br><small style='color:#16a34a;'>Đã thu: {fmt_vn(r['tien_da_thu'])} đ</small>", unsafe_allow_html=True)
+                        else:
+                            col_money.markdown(f"Chi: <b style='color:#dc2626;'>-{fmt_vn(r['so_tien'])} đ</b>", unsafe_allow_html=True)
+                        
+                        if r['loai_phieu'] == 'Thu':
+                            if r['con_no'] > 0:
+                                col_status.markdown(f"<span style='background:#fee2e2; color:#b91c1c; padding:3px 8px; border-radius:5px; font-weight:bold; font-size:12px;'>⚠️ Đang nợ: {fmt_vn(r['con_no'])}đ</span>", unsafe_allow_html=True)
+                            else:
+                                col_status.markdown("<span style='background:#dcfce7; color:#15803d; padding:3px 8px; border-radius:5px; font-weight:bold; font-size:12px;'>✅ Hoàn thành</span>", unsafe_allow_html=True)
+                        else:
+                            col_status.markdown("<span style='color:#6b7280; font-size:12px;'>Đã chi</span>", unsafe_allow_html=True)
+                            
+                        with col_action:
+                            if r['loai_phieu'] == 'Thu' and r['con_no'] > 0:
+                                with st.popover("💸 Trả tiền"):
+                                    st.caption(f"Cập nhật trả nợ chuyến: {r['ghi_chu']}")
+                                    tra_them = st.number_input("Số tiền khách trả đợt này:", min_value=0, max_value=int(r['con_no']), value=int(r['con_no']), step=10000, key=f"tra_{r['id']}")
+                                    if st.button("Xác nhận thu", type="primary", key=f"btn_tra_{r['id']}"):
+                                        new_paid = float(r['tien_da_thu']) + float(tra_them)
+                                        new_status = 'Hoàn thành' if new_paid >= float(r['so_tien']) else 'Đang nợ'
+                                        with get_connection() as conn:
+                                            conn.execute("UPDATE so_quy SET tien_da_thu = ?, trang_thai = ? WHERE id = ?", (new_paid, new_status, r['id']))
+                                            conn.commit()
+                                        st.success("Đã cập nhật thanh toán!")
+                                        st.rerun()
+                        st.divider()
+            else:
+                st.info("Chưa có phát sinh thu/chi chuyến xe nào trong kỳ này.")
+        else:
+            st.info("Sổ quỹ đang trống.")
 
     # =========================================================
     # TAB 4: BÁO CÁO LÃI LỖ P&L
