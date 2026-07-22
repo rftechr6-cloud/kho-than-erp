@@ -900,14 +900,20 @@ elif menu == "Giao Hàng & Vận Tải":
 # ==========================================
 # ==========================================
 # ==========================================
-# PHÂN HỆ MỚI: SỔ QUỸ & LÃI LỖ (P&L)
+# PHÂN HỆ MỚI: SỔ QUỸ & LÃI LỖ (P&L) + CÔNG NỢ
 # ==========================================
 elif menu == "Sổ Quỹ & Lãi Lỗ":
     if 'edit_sq_id' not in st.session_state: st.session_state.edit_sq_id = None
     
-    st.markdown("### 💵 Kế Toán Tổng Hợp & Báo Cáo Lãi Lỗ (P&L)")
-    # Đã thêm Tab báo cáo Xe Tải
-    tab_lap, tab_ls, tab_pl, tab_xe = st.tabs(["📝 Lập Phiếu Thu/Chi", "📚 Lịch Sử & Chỉnh Sửa", "📈 Báo Cáo Lãi Lỗ (P&L)", "🚚 Báo Cáo Xe Tải"])
+    st.markdown("### 💵 Kế Toán Tổng Hợp, Công Nợ & Báo Cáo (P&L)")
+    # Đã thêm Tab "Quản Lý Công Nợ"
+    tab_lap, tab_ls, tab_cn, tab_pl, tab_xe = st.tabs([
+        "📝 Lập Phiếu Thu/Chi", 
+        "📚 Lịch Sử Sổ Quỹ", 
+        "📒 Quản Lý Công Nợ", 
+        "📈 Báo Cáo Lãi Lỗ (P&L)", 
+        "🚚 Báo Cáo Xe Tải"
+    ])
     
     # Bổ sung các hạng mục chuyên nghiệp hơn
     HANG_MUC_LIST = ["Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Chi phí xe tải (Dầu, phụ tùng)", "Thu từ chở thuê (Xe tải)", "Thu khác", "Chi khác", "Chi sửa xe/xăng dầu"]
@@ -929,7 +935,7 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                     qid = get_next_id('so_quy', cur)
                     cur.execute("INSERT INTO so_quy (id, ngay, thoi_gian, loai_phieu, so_tien, hang_muc, nguoi_tao, ghi_chu) VALUES (?,?,?,?,?,?,?,?)", (qid, today_str, ts, loai_phieu, so_tien, hang_muc, st.session_state.current_user, ghi_chu_sq))
                     conn.commit()
-                st.success("✅ Đã ghi sổ thành công! (Vui lòng bấm sang tab 'Lịch Sử & Chỉnh Sửa' để kiểm tra lại giao dịch)")
+                st.success("✅ Đã ghi sổ thành công! (Vui lòng bấm sang tab 'Lịch Sử Sổ Quỹ' để kiểm tra lại giao dịch)")
                 st.rerun()
                 
     with tab_ls:
@@ -965,7 +971,7 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
         # === DANH SÁCH LỊCH SỬ KÈM NÚT XÓA/SỬA ===
         st.markdown("#### 📋 Lịch Sử Giao Dịch Kho Bãi")
         if not df_sq.empty:
-            df_sq_show = df_sq.head(100) # Lấy 100 giao dịch gần nhất để phần mềm chạy mượt mà
+            df_sq_show = df_sq.head(100)
             c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1, 2.5, 2, 3, 1.5])
             c1.markdown("<b>Thời Gian</b>", unsafe_allow_html=True)
             c2.markdown("<b>Loại</b>", unsafe_allow_html=True)
@@ -998,7 +1004,84 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                             st.rerun()
         else:
             st.info("Chưa có dữ liệu thu chi nào được ghi nhận.")
+
+    # === TÍNH NĂNG MỚI: QUẢN LÝ CÔNG NỢ XE TẢI ===
+    with tab_cn:
+        st.markdown("#### 📒 Quản Lý Công Nợ Chở Thuê (Chưa Thanh Toán)")
+        st.info("💡 Lưu chuyến đi chưa thu tiền tại đây. Khi khách trả tiền, ấn **Thu tiền** -> Hệ thống sẽ tự động gạch nợ và ghi thu vào Sổ Quỹ.")
+        
+        # Tự động tạo bảng cong_no_xe nếu chưa có
+        with get_connection() as conn:
+            conn.execute('''CREATE TABLE IF NOT EXISTS cong_no_xe (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            thoi_gian TEXT,
+                            khach_hang TEXT,
+                            ghi_chu TEXT,
+                            so_tien REAL,
+                            trang_thai TEXT
+                        )''')
+            conn.commit()
             
+        with st.expander("➕ THÊM CHUYẾN XE GHI NỢ MỚI", expanded=False):
+            with st.form("form_them_no"):
+                col1, col2, col3 = st.columns([2, 3, 2])
+                with col1:
+                    no_khach_hang = st.text_input("Tên Khách Hàng / Đơn Vị:")
+                with col2:
+                    no_ghi_chu = st.text_input("Chi tiết chuyến (Điểm đến, Biển số...):")
+                with col3:
+                    no_so_tien = st.number_input("Số tiền cước (đ):", min_value=1000, value=100000, step=10000)
+                
+                if st.form_submit_button("Ghi Nợ Khách Hàng", type="primary"):
+                    if no_khach_hang.strip() == "":
+                        st.error("Vui lòng nhập tên khách hàng!")
+                    else:
+                        ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                        with get_connection() as conn:
+                            conn.execute("INSERT INTO cong_no_xe (thoi_gian, khach_hang, ghi_chu, so_tien, trang_thai) VALUES (?, ?, ?, ?, ?)", 
+                                         (ts, no_khach_hang, no_ghi_chu, no_so_tien, 'Chưa thanh toán'))
+                            conn.commit()
+                        st.success("✅ Đã lưu khoản nợ thành công!")
+                        st.rerun()
+
+        # Hiển thị danh sách đang nợ
+        with get_connection() as conn:
+            df_no = pd.read_sql_query("SELECT * FROM cong_no_xe WHERE trang_thai='Chưa thanh toán' ORDER BY thoi_gian ASC", conn.connection)
+            df_da_thu = pd.read_sql_query("SELECT * FROM cong_no_xe WHERE trang_thai='Đã thanh toán' ORDER BY thoi_gian DESC LIMIT 10", conn.connection)
+        
+        tong_no = df_no['so_tien'].apply(to_float).sum() if not df_no.empty else 0
+        st.markdown(f"**TỔNG TIỀN ĐANG BỊ NỢ: <span style='color:red; font-size:20px;'>{fmt_vn(tong_no)} đ</span>**", unsafe_allow_html=True)
+        
+        if not df_no.empty:
+            st.markdown("##### ⏳ Danh sách chờ thu tiền:")
+            for _, r in df_no.iterrows():
+                with st.container():
+                    colA, colB, colC, colD, colE = st.columns([1.5, 2, 2.5, 1.5, 1.5])
+                    colA.markdown(f"*{r['thoi_gian'].split()[0]}*")
+                    colB.markdown(f"**{r['khach_hang']}**")
+                    colC.markdown(f"{r['ghi_chu']}")
+                    colD.markdown(f"<span style='color:red; font-weight:bold;'>{fmt_vn(r['so_tien'])} đ</span>", unsafe_allow_html=True)
+                    
+                    with colE:
+                        if st.button("✅ Đã Thu Tiền", key=f"thu_no_{r['id']}", type="primary"):
+                            ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                            with get_connection() as conn:
+                                cur = conn.cursor()
+                                # 1. Đổi trạng thái nợ thành Đã thanh toán
+                                cur.execute("UPDATE cong_no_xe SET trang_thai='Đã thanh toán' WHERE id=?", (r['id'],))
+                                
+                                # 2. Ghi khoản tiền này vào Sổ Quỹ tự động
+                                qid = get_next_id('so_quy', cur)
+                                gc_so_quy = f"Thu nợ: {r['khach_hang']} - {r['ghi_chu']}"
+                                cur.execute("INSERT INTO so_quy (id, ngay, thoi_gian, loai_phieu, so_tien, hang_muc, nguoi_tao, ghi_chu) VALUES (?,?,?,?,?,?,?,?)", 
+                                            (qid, today_str, ts, "Thu", r['so_tien'], "Thu từ chở thuê (Xe tải)", st.session_state.current_user, gc_so_quy))
+                                conn.commit()
+                            st.success("✅ Đã thu nợ và chuyển tiền vào Sổ Quỹ!")
+                            st.rerun()
+                    st.divider()
+        else:
+            st.success("Tuyệt vời! Hiện tại không có khách nào nợ cước xe tải.")
+
     with tab_pl:
         st.markdown("#### 📊 Báo Cáo Lãi Lỗ Hoạt Động Doanh Nghiệp (P&L)")
         thang_loc = st.selectbox("Chọn chu kỳ báo cáo:", ["Tháng này", "Tháng trước", "Tất cả thời gian"])
@@ -1034,7 +1117,7 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                 <tr><td style='padding:8px 0;'>2. Giá vốn hàng bán (Theo kho)</td><td style='text-align:right; color:#dc2626; padding:8px 0;'>- {fmt_vn(gia_von)} đ</td></tr>
                 <tr style='background:#f1f5f9;'><td style='padding:12px;'><b>3. LỢI NHUẬN GỘP (1 - 2)</b></td><td style='text-align:right; font-weight:bold; color:#2563eb; padding:12px;'>{fmt_vn(loi_nhuan_gop)} đ</td></tr>
                 <tr><td style='padding:8px 0; margin-top:10px;'>4. Tổng chi phí vận hành (Lương, Mặt bằng...)</td><td style='text-align:right; color:#dc2626; padding:8px 0;'>- {fmt_vn(tong_chi)} đ</td></tr>
-                <tr><td style='padding:8px 0;'>5. Thu nhập khác ngoài bãi</td><td style='text-align:right; color:#16a34a; padding:8px 0;'>+ {fmt_vn(tong_thu_khac)} đ</td></tr>
+                <tr><td style='padding:8px 0;'>5. Thu nhập khác ngoài bãi (Bao gồm xe tải đã thu tiền)</td><td style='text-align:right; color:#16a34a; padding:8px 0;'>+ {fmt_vn(tong_thu_khac)} đ</td></tr>
                 <tr style='background:#dcfce7; border-top:2px solid #22c55e;'><td style='padding:18px; font-size:18px;'><b>6. LỢI NHUẬN RÒNG (NET PROFIT)</b></td><td style='text-align:right; font-size:24px; font-weight:bold; color:#15803d; padding:18px;'>{fmt_vn(loi_nhuan_thuan)} đ</td></tr>
             </table>
         </div>
@@ -1085,7 +1168,7 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                 lai_xe = thu_xe - chi_xe
                 
                 c1, c2, c3 = st.columns(3)
-                with c1: st.markdown(f"<div class='kpi-card border-green'><div class='kpi-label'>💵 Tổng Thu Chở Thuê</div><div class='kpi-value text-green'>+{fmt_vn(thu_xe)} đ</div></div>", unsafe_allow_html=True)
+                with c1: st.markdown(f"<div class='kpi-card border-green'><div class='kpi-label'>💵 Tổng Thu Chở Thuê (Đã nhận tiền)</div><div class='kpi-value text-green'>+{fmt_vn(thu_xe)} đ</div></div>", unsafe_allow_html=True)
                 with c2: st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>⛽ Chi Phí Dầu/Phụ Tùng</div><div class='kpi-value text-red'>-{fmt_vn(chi_xe)} đ</div></div>", unsafe_allow_html=True)
                 with c3: st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lãi Ròng Của Xe</div><div class='kpi-value text-purple'>{fmt_vn(lai_xe)} đ</div></div>", unsafe_allow_html=True)
                 
