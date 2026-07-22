@@ -900,18 +900,37 @@ elif menu == "Giao Hàng & Vận Tải":
 # ==========================================
 # =========================================================
 # =========================================================
-# =========================================================
 # PHÂN HỆ: SỔ QUỸ, CÔNG NỢ & BÁO CÁO XE TẢI (P&L)
 # =========================================================
 import re
+import pandas as pd
+from datetime import datetime, timezone, timedelta
+import streamlit as st
+
+# --- CÁC HÀM BỔ TRỢ (Thêm vào để tránh lỗi NameError) ---
+def to_float(val):
+    try: return float(val)
+    except (ValueError, TypeError): return 0.0
+
+def fmt_vn(val):
+    try: return f"{int(float(val)):,}".replace(",", ".")
+    except: return "0"
 
 def clean_money(val):
     if not val: return 0
     cleaned = re.sub(r'[^\d]', '', str(val))
     return int(cleaned) if cleaned else 0
 
+# (Giả định bạn đã có hàm get_connection và get_next_id)
+# ---------------------------------------------------------
+
 if menu == "Sổ Quỹ & Lãi Lỗ":
-    if 'edit_sq_id' not in st.session_state: st.session_state.edit_sq_id = None
+    # Định nghĩa các biến thời gian dùng trong module
+    now_dt = datetime.now()
+    today_str = now_dt.strftime('%Y-%m-%d')
+
+    if 'edit_sq_id' not in st.session_state: 
+        st.session_state.edit_sq_id = None
     
     # --- TỰ ĐỘNG CẬP NHẬT CẤU TRÚC BẢNG ---
     with get_connection() as conn:
@@ -974,7 +993,7 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
                 cur = conn.cursor()
                 qid = get_next_id('so_quy', cur)
                 cur.execute("INSERT INTO so_quy (id, ngay, thoi_gian, loai_phieu, so_tien, hang_muc, nguoi_tao, ghi_chu, trang_thai, tien_da_thu) VALUES (?,?,?,?,?,?,?,?,?,?)", 
-                            (qid, today_str, ts, loai_phieu, so_tien, hang_muc, st.session_state.current_user, ghi_chu_sq, trang_thai, tien_da_thu))
+                            (qid, today_str, ts, loai_phieu, so_tien, hang_muc, st.session_state.get('current_user', 'Admin'), ghi_chu_sq, trang_thai, tien_da_thu))
                 conn.commit()
                 
             st.session_state.nhap_gc = ""
@@ -991,7 +1010,7 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
     # =========================================================
     with tab_ls:
         with get_connection() as conn:
-            df_sq = pd.read_sql_query("SELECT id, thoi_gian, loai_phieu, hang_muc, so_tien, tien_da_thu, trang_thai, nguoi_tao, ghi_chu FROM so_quy ORDER BY id DESC", conn.connection)
+            df_sq = pd.read_sql_query("SELECT id, thoi_gian, loai_phieu, hang_muc, so_tien, tien_da_thu, trang_thai, nguoi_tao, ghi_chu FROM so_quy ORDER BY id DESC", conn)
         
         if st.session_state.edit_sq_id is not None:
             edit_id = st.session_state.edit_sq_id
@@ -1060,8 +1079,9 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
                             st.session_state.edit_lp = r['loai_phieu']
                             st.session_state.edit_hm = r['hang_muc'] if r['hang_muc'] in HANG_MUC_LIST else HANG_MUC_LIST[0]
                             st.session_state.edit_gc = str(r['ghi_chu'] if pd.notna(r['ghi_chu']) else "")
-                            st.session_state.edit_st = str(int(r['so_tien']))
-                            st.session_state.edit_dt = str(int(r['tien_da_thu']) if pd.notna(r['tien_da_thu']) else int(r['so_tien']))
+                            # Sửa lỗi convert an toàn: dùng float() trước khi ép sang int()
+                            st.session_state.edit_st = str(int(float(r['so_tien'])))
+                            st.session_state.edit_dt = str(int(float(r['tien_da_thu'])) if pd.notna(r['tien_da_thu']) else int(float(r['so_tien'])))
                             st.rerun()
                     with cc7:
                         if st.button("❌", key=f"dsq_{r['id']}", help="Xóa phiếu này"): 
@@ -1081,7 +1101,7 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
         thang_loc_xe = st.selectbox("Chọn chu kỳ báo cáo:", ["Tháng này", "Tháng trước", "Tất cả thời gian"], key='loc_xe')
         
         with get_connection() as conn:
-            df_xe = pd.read_sql_query("SELECT id, thoi_gian, loai_phieu, hang_muc, so_tien, tien_da_thu, trang_thai, ghi_chu FROM so_quy ORDER BY thoi_gian DESC", conn.connection)
+            df_xe = pd.read_sql_query("SELECT id, thoi_gian, loai_phieu, hang_muc, so_tien, tien_da_thu, trang_thai, ghi_chu FROM so_quy ORDER BY thoi_gian DESC", conn)
             
         if not df_xe.empty:
             df_xe['Date'] = pd.to_datetime(df_xe['thoi_gian'])
@@ -1180,8 +1200,8 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
         thang_loc = st.selectbox("Chọn chu kỳ báo cáo:", ["Tháng này", "Tháng trước", "Tất cả thời gian"], key="loc_pl_chon")
         
         with get_connection() as conn:
-            df_pl_dh = pd.read_sql_query("SELECT dh.id as dh_id, dh.thoi_gian_tao, dh.tong_tien, ctdh.so_luong, ctdh.don_gia_von FROM don_hang dh JOIN chi_tiet_don_hang ctdh ON dh.id = ctdh.don_hang_id WHERE dh.trang_thai_giao='Đã hoàn thành'", conn.connection)
-            df_pl_sq = pd.read_sql_query("SELECT thoi_gian, loai_phieu, so_tien, tien_da_thu FROM so_quy", conn.connection)
+            df_pl_dh = pd.read_sql_query("SELECT dh.id as dh_id, dh.thoi_gian_tao, dh.tong_tien, ctdh.so_luong, ctdh.don_gia_von FROM don_hang dh JOIN chi_tiet_don_hang ctdh ON dh.id = ctdh.don_hang_id WHERE dh.trang_thai_giao='Đã hoàn thành'", conn)
+            df_pl_sq = pd.read_sql_query("SELECT thoi_gian, loai_phieu, so_tien, tien_da_thu FROM so_quy", conn)
             
         if not df_pl_dh.empty: df_pl_dh['Date'] = pd.to_datetime(df_pl_dh['thoi_gian_tao'])
         if not df_pl_sq.empty: df_pl_sq['Date'] = pd.to_datetime(df_pl_sq['thoi_gian'])
