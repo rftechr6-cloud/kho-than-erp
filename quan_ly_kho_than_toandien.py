@@ -1102,7 +1102,8 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
             st.info("Chưa có dữ liệu.")
 
     # =========================================================
-    # TAB 3: BÁO CÁO & QUẢN LÝ XE TẢI
+   # =========================================================
+    # TAB 3: BÁO CÁO & QUẢN LÝ XE TẢI (Đã thêm cột Chi Phí Xe)
     # =========================================================
     with tab_xe:
         st.markdown("#### 🚚 Báo Cáo Hiệu Quả & Công Nợ Xe Tải")
@@ -1140,14 +1141,25 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
                 da_thu = df_thu['tien_da_thu'].sum()
                 dang_no = df_thu['con_no'].sum()
                 
+                # Chi phí xe (Xăng dầu, bảo trì, phụ tùng...)
                 chi_xe = df_xe_filtered[df_xe_filtered['loai_phieu'] == 'Chi']['so_tien'].sum()
+                
+                # Lãi thực tế = Số tiền ĐÃ THU - Tổng CHI
                 lai_thuc_te = da_thu - chi_xe
                 
-                c1, c2, c3, c4 = st.columns(4)
-                with c1: st.markdown(f"<div class='kpi-card border-blue'><div class='kpi-label'>🚚 Tổng Cước Chuyến</div><div class='kpi-value'>{fmt_vn(tong_cuoc)} đ</div></div>", unsafe_allow_html=True)
-                with c2: st.markdown(f"<div class='kpi-card border-green'><div class='kpi-label'>💵 Đã Thu Tiền Mặt</div><div class='kpi-value text-green'>+{fmt_vn(da_thu)} đ</div></div>", unsafe_allow_html=True)
-                with c3: st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>🚨 Khách Còn Nợ</div><div class='kpi-value text-red'>{fmt_vn(dang_no)} đ</div></div>", unsafe_allow_html=True)
-                with c4: st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lãi Thực Trong Két</div><div class='kpi-value text-purple'>{fmt_vn(lai_thuc_te)} đ</div></div>", unsafe_allow_html=True)
+                # --- CHIA THÀNH 5 CỘT KPI HIỂN THỊ TỔNG QUAN THU/CHI ---
+                c1, c2, c3, c4, c5 = st.columns(5)
+                with c1: 
+                    st.markdown(f"<div class='kpi-card border-blue'><div class='kpi-label'>🚚 Tổng Cước Chuyến</div><div class='kpi-value'>{fmt_vn(tong_cuoc)} đ</div></div>", unsafe_allow_html=True)
+                with c2: 
+                    st.markdown(f"<div class='kpi-card border-green'><div class='kpi-label'>💵 Đã Thu Tiền Mặt</div><div class='kpi-value text-green'>+{fmt_vn(da_thu)} đ</div></div>", unsafe_allow_html=True)
+                with c3: 
+                    st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>🚨 Khách Còn Nợ</div><div class='kpi-value text-red'>{fmt_vn(dang_no)} đ</div></div>", unsafe_allow_html=True)
+                with c4: 
+                    # THÊM CỘT TỔNG CHI BÊN DƯỚI
+                    st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>⛽ Tổng Chi Phí Xe</div><div class='kpi-value text-red'>-{fmt_vn(chi_xe)} đ</div></div>", unsafe_allow_html=True)
+                with c5: 
+                    st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lãi Thực Trong Két</div><div class='kpi-value text-purple'>{fmt_vn(lai_thuc_te)} đ</div></div>", unsafe_allow_html=True)
                 
                 st.markdown("---")
                 st.markdown("##### 📜 Bảng Kê Chi Tiết & Trạng Thái Thanh Toán Chuyến Xe")
@@ -1199,7 +1211,6 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
                 st.info("Chưa có phát sinh thu/chi chuyến xe nào trong kỳ này.")
         else:
             st.info("Sổ quỹ đang trống.")
-
     # =========================================================
     # TAB 4: BÁO CÁO LÃI LỖ P&L
     # =========================================================
