@@ -900,8 +900,17 @@ elif menu == "Giao Hàng & Vận Tải":
 # ==========================================
 # =========================================================
 # =========================================================
+# =========================================================
 # PHÂN HỆ: SỔ QUỸ, CÔNG NỢ & BÁO CÁO XE TẢI (P&L)
 # =========================================================
+import re
+
+# Hàm dọn dẹp tiền: cho phép người dùng nhập tự do "100.000" hoặc "1,000,000", sẽ tự lọc ra số 100000
+def clean_money(val):
+    if not val: return 0
+    cleaned = re.sub(r'[^\d]', '', str(val))
+    return int(cleaned) if cleaned else 0
+
 elif menu == "Sổ Quỹ & Lãi Lỗ":
     if 'edit_sq_id' not in st.session_state: st.session_state.edit_sq_id = None
     
@@ -929,18 +938,24 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
     HANG_MUC_LIST = ["Thu từ chở thuê (Xe tải)", "Chi phí xe tải (Dầu, phụ tùng)", "Chi sửa xe/xăng dầu", "Chi tiền tàu/nhập hàng", "Chi điện nước, mặt bằng", "Chi lương/nhân công", "Thu khác", "Chi khác"]
 
     # =========================================================
-    # TAB 1: LẬP PHIẾU THU/CHI (ĐÃ BỎ FORM - TƯƠNG TÁC TỨC THÌ)
+    # TAB 1: LẬP PHIẾU THU/CHI
     # =========================================================
     with tab_lap:
         st.markdown("<div style='background:#f8fafc; padding:20px; border-radius:10px; border:1px solid #e2e8f0;'>", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
+        
+        # Khởi tạo giá trị mặc định cho ô nhập nếu chưa có
+        if "nhap_st" not in st.session_state: st.session_state.nhap_st = "100000"
+        
         with c1:
             loai_phieu = st.radio("Loại phiếu:", ["Thu", "Chi"], horizontal=True, key="nhap_lp")
             hang_muc = st.selectbox("Hạng mục:", HANG_MUC_LIST, key="nhap_hm")
             ghi_chu_sq = st.text_input("Ghi chú chuyến xe / nội dung (VD: Khách A, Biển số xe, Tên chuyến...):", key="nhap_gc")
         
         with c2:
-            so_tien = st.number_input("Tổng tiền giao dịch / Tổng cước (đ):", min_value=1000, value=100000, step=10000, key="nhap_st")
+            # Đã thay number_input thành text_input tự do để bỏ nút +/-
+            so_tien_str = st.text_input("Tổng tiền giao dịch / Tổng cước (đ):", key="nhap_st", help="Có thể nhập dấu chấm phẩy (VD: 100.000)")
+            so_tien = clean_money(so_tien_str)
             
             trang_thai = "Hoàn thành"
             tien_da_thu = so_tien
@@ -950,7 +965,9 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                 is_debt = st.checkbox("⚠️ Khách chuyến này còn nợ / Chưa thanh toán đủ?", key="nhap_no")
                 if is_debt:
                     trang_thai = "Đang nợ"
-                    tien_da_thu = st.number_input("Số tiền khách ĐÃ TRẢ TRƯỚC (Nhập 0 nếu nợ 100%, hoặc nhập số tiền trả 1 phần):", min_value=0, max_value=int(so_tien), value=0, step=10000, key="nhap_tdt")
+                    if "nhap_tdt" not in st.session_state: st.session_state.nhap_tdt = "0"
+                    tien_da_thu_str = st.text_input("Số tiền khách ĐÃ TRẢ TRƯỚC (Nhập 0 nếu nợ 100%):", key="nhap_tdt")
+                    tien_da_thu = clean_money(tien_da_thu_str)
                 st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -962,38 +979,42 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                 cur.execute("INSERT INTO so_quy (id, ngay, thoi_gian, loai_phieu, so_tien, hang_muc, nguoi_tao, ghi_chu, trang_thai, tien_da_thu) VALUES (?,?,?,?,?,?,?,?,?,?)", 
                             (qid, today_str, ts, loai_phieu, so_tien, hang_muc, st.session_state.current_user, ghi_chu_sq, trang_thai, tien_da_thu))
                 conn.commit()
+                
+            # Xóa sạch các ô nhập sau khi lưu thành công
+            st.session_state.nhap_gc = ""
+            st.session_state.nhap_st = "100000"
+            st.session_state.nhap_no = False
+            if "nhap_tdt" in st.session_state: st.session_state.nhap_tdt = "0"
+            
             st.success(f"Đã ghi sổ chuyến xe! Trạng thái: **{trang_thai}**")
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
     # =========================================================
-    # TAB 2: LỊCH SỬ SỔ QUỸ (ĐÃ BỎ FORM PHẦN SỬA - KHÔNG BỊ TRÔI SỐ)
+    # TAB 2: LỊCH SỬ SỔ QUỸ & CHỈNH SỬA
     # =========================================================
     with tab_ls:
         with get_connection() as conn:
             df_sq = pd.read_sql_query("SELECT id, thoi_gian, loai_phieu, hang_muc, so_tien, tien_da_thu, trang_thai, nguoi_tao, ghi_chu FROM so_quy ORDER BY id DESC", conn.connection)
         
-        # --- KHUNG CHỈNH SỬA TỰ DO (KHÔNG FORM) ---
+        # --- KHUNG CHỈNH SỬA ĐÃ KHẮC PHỤC LỖI NHẢY SỐ ---
         if st.session_state.edit_sq_id is not None:
             edit_id = st.session_state.edit_sq_id
-            sq_info = df_sq[df_sq['id'] == edit_id].iloc[0]
             st.markdown(f"<div style='background:#fef3c7; padding:15px; border-radius:8px; border:1px solid #f59e0b; margin-bottom:15px;'><h4>✏️ ĐANG CHỈNH SỬA PHIẾU ID #{edit_id}</h4>", unsafe_allow_html=True)
             
             c1, c2 = st.columns(2)
             with c1:
-                e_lp = st.radio("Loại phiếu:", ["Thu", "Chi"], index=0 if sq_info['loai_phieu']=="Thu" else 1, horizontal=True, key="edit_lp")
-                current_hm_index = HANG_MUC_LIST.index(sq_info['hang_muc']) if sq_info['hang_muc'] in HANG_MUC_LIST else 0
-                e_hm = st.selectbox("Hạng mục:", HANG_MUC_LIST, index=current_hm_index, key="edit_hm")
-                e_gc = st.text_input("Ghi chú chi tiết:", value=str(sq_info['ghi_chu'] if pd.notna(sq_info['ghi_chu']) else ""), key="edit_gc")
+                e_lp = st.radio("Loại phiếu:", ["Thu", "Chi"], horizontal=True, key="edit_lp")
+                e_hm = st.selectbox("Hạng mục:", HANG_MUC_LIST, key="edit_hm")
+                e_gc = st.text_input("Ghi chú chi tiết:", key="edit_gc")
             
             with c2:
-                e_st = st.number_input("Tổng tiền cước / giao dịch (đ):", min_value=1000, value=to_int(sq_info['so_tien']), step=10000, key="edit_st")
+                e_st_str = st.text_input("Tổng tiền cước / giao dịch (đ):", key="edit_st")
+                e_st = clean_money(e_st_str)
                 
-                e_dt = to_int(sq_info['tien_da_thu']) if pd.notna(sq_info['tien_da_thu']) else e_st
                 if e_lp == "Thu":
-                    # Đảm bảo giá trị đã trả không lớn hơn tổng tiền lúc khởi tạo
-                    safe_dt_value = int(e_dt) if int(e_dt) <= int(e_st) else int(e_st)
-                    e_dt_input = st.number_input("Số tiền thực tế KHÁCH ĐÃ TRẢ (đ):", min_value=0, max_value=int(e_st), value=safe_dt_value, step=10000, key="edit_dt")
+                    e_dt_str = st.text_input("Số tiền thực tế KHÁCH ĐÃ TRẢ (đ):", key="edit_dt")
+                    e_dt_input = clean_money(e_dt_str)
                 else:
                     e_dt_input = e_st
                     
@@ -1041,7 +1062,13 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                     
                     with cc6:
                         if st.button("✏️", key=f"esq_{r['id']}", help="Sửa phiếu này"):
+                            # KHỞI TẠO BIẾN TẠM MỘT LẦN DUY NHẤT KHI BẤM NÚT ĐỂ CHỐNG LỖI NHẢY SỐ
                             st.session_state.edit_sq_id = r['id']
+                            st.session_state.edit_lp = r['loai_phieu']
+                            st.session_state.edit_hm = r['hang_muc'] if r['hang_muc'] in HANG_MUC_LIST else HANG_MUC_LIST[0]
+                            st.session_state.edit_gc = str(r['ghi_chu'] if pd.notna(r['ghi_chu']) else "")
+                            st.session_state.edit_st = str(int(r['so_tien']))
+                            st.session_state.edit_dt = str(int(r['tien_da_thu']) if pd.notna(r['tien_da_thu']) else int(r['so_tien']))
                             st.rerun()
                     with cc7:
                         if st.button("❌", key=f"dsq_{r['id']}", help="Xóa phiếu này"): 
@@ -1135,7 +1162,11 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                             if r['loai_phieu'] == 'Thu' and r['con_no'] > 0:
                                 with st.popover("💸 Trả tiền"):
                                     st.caption(f"Cập nhật trả nợ chuyến: {r['ghi_chu']}")
-                                    tra_them = st.number_input("Số tiền khách trả đợt này:", min_value=0, max_value=int(r['con_no']), value=int(r['con_no']), step=10000, key=f"tra_{r['id']}")
+                                    
+                                    # Cũng bỏ luôn nút +/- ở phần trả nợ con
+                                    tra_them_str = st.text_input("Số tiền khách trả đợt này:", value=str(int(r['con_no'])), key=f"tra_{r['id']}")
+                                    tra_them = clean_money(tra_them_str)
+                                    
                                     if st.button("Xác nhận thu", type="primary", key=f"btn_tra_{r['id']}"):
                                         new_paid = float(r['tien_da_thu']) + float(tra_them)
                                         new_status = 'Hoàn thành' if new_paid >= float(r['so_tien']) else 'Đang nợ'
