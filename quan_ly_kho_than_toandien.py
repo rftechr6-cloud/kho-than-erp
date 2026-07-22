@@ -1159,7 +1159,7 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
                 with c4: 
                     st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>🚨 Khách Còn Nợ</div><div class='kpi-value text-red'>{fmt_vn(dang_no)} đ</div></div>", unsafe_allow_html=True)
                 with c5: 
-                    st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lãi Thực Trong Két</div><div class='kpi-value text-purple'>{fmt_vn(lai_thuc_te)} đ</div></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lãi Thực Tế</div><div class='kpi-value text-purple'>{fmt_vn(lai_thuc_te)} đ</div></div>", unsafe_allow_html=True)
                 
                 st.markdown("---")
                 st.markdown("##### 📜 Bảng Kê Chi Tiết & Trạng Thái Thanh Toán Chuyến Xe")
