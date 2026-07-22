@@ -905,13 +905,12 @@ elif menu == "Giao Hàng & Vận Tải":
 # =========================================================
 import re
 
-# Hàm dọn dẹp tiền: cho phép người dùng nhập tự do "100.000" hoặc "1,000,000", sẽ tự lọc ra số 100000
 def clean_money(val):
     if not val: return 0
     cleaned = re.sub(r'[^\d]', '', str(val))
     return int(cleaned) if cleaned else 0
 
-elif menu == "Sổ Quỹ & Lãi Lỗ":
+if menu == "Sổ Quỹ & Lãi Lỗ":
     if 'edit_sq_id' not in st.session_state: st.session_state.edit_sq_id = None
     
     # --- TỰ ĐỘNG CẬP NHẬT CẤU TRÚC BẢNG ---
@@ -944,7 +943,6 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
         st.markdown("<div style='background:#f8fafc; padding:20px; border-radius:10px; border:1px solid #e2e8f0;'>", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         
-        # Khởi tạo giá trị mặc định cho ô nhập nếu chưa có
         if "nhap_st" not in st.session_state: st.session_state.nhap_st = "100000"
         
         with c1:
@@ -953,8 +951,7 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
             ghi_chu_sq = st.text_input("Ghi chú chuyến xe / nội dung (VD: Khách A, Biển số xe, Tên chuyến...):", key="nhap_gc")
         
         with c2:
-            # Đã thay number_input thành text_input tự do để bỏ nút +/-
-            so_tien_str = st.text_input("Tổng tiền giao dịch / Tổng cước (đ):", key="nhap_st", help="Có thể nhập dấu chấm phẩy (VD: 100.000)")
+            so_tien_str = st.text_input("Tổng tiền giao dịch / Tổng cước (đ):", key="nhap_st", help="Có thể nhập số tự do không giới hạn")
             so_tien = clean_money(so_tien_str)
             
             trang_thai = "Hoàn thành"
@@ -980,7 +977,6 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                             (qid, today_str, ts, loai_phieu, so_tien, hang_muc, st.session_state.current_user, ghi_chu_sq, trang_thai, tien_da_thu))
                 conn.commit()
                 
-            # Xóa sạch các ô nhập sau khi lưu thành công
             st.session_state.nhap_gc = ""
             st.session_state.nhap_st = "100000"
             st.session_state.nhap_no = False
@@ -997,7 +993,6 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
         with get_connection() as conn:
             df_sq = pd.read_sql_query("SELECT id, thoi_gian, loai_phieu, hang_muc, so_tien, tien_da_thu, trang_thai, nguoi_tao, ghi_chu FROM so_quy ORDER BY id DESC", conn.connection)
         
-        # --- KHUNG CHỈNH SỬA ĐÃ KHẮC PHỤC LỖI NHẢY SỐ ---
         if st.session_state.edit_sq_id is not None:
             edit_id = st.session_state.edit_sq_id
             st.markdown(f"<div style='background:#fef3c7; padding:15px; border-radius:8px; border:1px solid #f59e0b; margin-bottom:15px;'><h4>✏️ ĐANG CHỈNH SỬA PHIẾU ID #{edit_id}</h4>", unsafe_allow_html=True)
@@ -1039,7 +1034,6 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
             st.markdown("</div>", unsafe_allow_html=True)
             st.markdown("---")
 
-        # --- DANH SÁCH LỊCH SỬ ---
         st.markdown("#### 📋 Lịch Sử Giao Dịch Tất Cả Hạng Mục")
         if not df_sq.empty:
             for _, r in df_sq.head(100).iterrows():
@@ -1062,7 +1056,6 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                     
                     with cc6:
                         if st.button("✏️", key=f"esq_{r['id']}", help="Sửa phiếu này"):
-                            # KHỞI TẠO BIẾN TẠM MỘT LẦN DUY NHẤT KHI BẤM NÚT ĐỂ CHỐNG LỖI NHẢY SỐ
                             st.session_state.edit_sq_id = r['id']
                             st.session_state.edit_lp = r['loai_phieu']
                             st.session_state.edit_hm = r['hang_muc'] if r['hang_muc'] in HANG_MUC_LIST else HANG_MUC_LIST[0]
@@ -1162,8 +1155,6 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
                             if r['loai_phieu'] == 'Thu' and r['con_no'] > 0:
                                 with st.popover("💸 Trả tiền"):
                                     st.caption(f"Cập nhật trả nợ chuyến: {r['ghi_chu']}")
-                                    
-                                    # Cũng bỏ luôn nút +/- ở phần trả nợ con
                                     tra_them_str = st.text_input("Số tiền khách trả đợt này:", value=str(int(r['con_no'])), key=f"tra_{r['id']}")
                                     tra_them = clean_money(tra_them_str)
                                     
@@ -1186,7 +1177,7 @@ elif menu == "Sổ Quỹ & Lãi Lỗ":
     # =========================================================
     with tab_pl:
         st.markdown("#### 📊 Báo Cáo Lãi Lỗ Hoạt Động Doanh Nghiệp (P&L)")
-        thang_loc = st.selectbox("Chọn chu kỳ báo cáo:", ["Tháng này", "Tháng trước", "Tất cả thời gian"])
+        thang_loc = st.selectbox("Chọn chu kỳ báo cáo:", ["Tháng này", "Tháng trước", "Tất cả thời gian"], key="loc_pl_chon")
         
         with get_connection() as conn:
             df_pl_dh = pd.read_sql_query("SELECT dh.id as dh_id, dh.thoi_gian_tao, dh.tong_tien, ctdh.so_luong, ctdh.don_gia_von FROM don_hang dh JOIN chi_tiet_don_hang ctdh ON dh.id = ctdh.don_hang_id WHERE dh.trang_thai_giao='Đã hoàn thành'", conn.connection)
