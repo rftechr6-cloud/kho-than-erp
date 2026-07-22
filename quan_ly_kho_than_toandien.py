@@ -1103,7 +1103,8 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
 
     # =========================================================
    # =========================================================
-    # TAB 3: BÁO CÁO & QUẢN LÝ XE TẢI (Đã thêm cột Chi Phí Xe)
+    # =========================================================
+    # TAB 3: BÁO CÁO & QUẢN LÝ XE TẢI (Đã sắp xếp lại vị trí KPI)
     # =========================================================
     with tab_xe:
         st.markdown("#### 🚚 Báo Cáo Hiệu Quả & Công Nợ Xe Tải")
@@ -1147,17 +1148,16 @@ if menu == "Sổ Quỹ & Lãi Lỗ":
                 # Lãi thực tế = Số tiền ĐÃ THU - Tổng CHI
                 lai_thuc_te = da_thu - chi_xe
                 
-                # --- CHIA THÀNH 5 CỘT KPI HIỂN THỊ TỔNG QUAN THU/CHI ---
+                # --- CHIA THÀNH 5 CỘT KPI (ĐÃ SẮP XẾP LẠI THỨ TỰ) ---
                 c1, c2, c3, c4, c5 = st.columns(5)
                 with c1: 
                     st.markdown(f"<div class='kpi-card border-blue'><div class='kpi-label'>🚚 Tổng Cước Chuyến</div><div class='kpi-value'>{fmt_vn(tong_cuoc)} đ</div></div>", unsafe_allow_html=True)
                 with c2: 
-                    st.markdown(f"<div class='kpi-card border-green'><div class='kpi-label'>💵 Đã Thu Tiền Mặt</div><div class='kpi-value text-green'>+{fmt_vn(da_thu)} đ</div></div>", unsafe_allow_html=True)
-                with c3: 
-                    st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>🚨 Khách Còn Nợ</div><div class='kpi-value text-red'>{fmt_vn(dang_no)} đ</div></div>", unsafe_allow_html=True)
-                with c4: 
-                    # THÊM CỘT TỔNG CHI BÊN DƯỚI
                     st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>⛽ Tổng Chi Phí Xe</div><div class='kpi-value text-red'>-{fmt_vn(chi_xe)} đ</div></div>", unsafe_allow_html=True)
+                with c3: 
+                    st.markdown(f"<div class='kpi-card border-green'><div class='kpi-label'>💵 Đã Thu Tiền Mặt</div><div class='kpi-value text-green'>+{fmt_vn(da_thu)} đ</div></div>", unsafe_allow_html=True)
+                with c4: 
+                    st.markdown(f"<div class='kpi-card border-red'><div class='kpi-label'>🚨 Khách Còn Nợ</div><div class='kpi-value text-red'>{fmt_vn(dang_no)} đ</div></div>", unsafe_allow_html=True)
                 with c5: 
                     st.markdown(f"<div class='kpi-card border-purple'><div class='kpi-label'>📈 Lãi Thực Trong Két</div><div class='kpi-value text-purple'>{fmt_vn(lai_thuc_te)} đ</div></div>", unsafe_allow_html=True)
                 
