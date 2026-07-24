@@ -1362,7 +1362,8 @@ elif menu == "Lịch Sử Đơn Hàng":
     has_high_clearance = (st.session_state.user_role in ['admin', 'manager'])
     
     if has_high_clearance: 
-        tab_tongquan, tab_hoantra, tab_chitiet = st.tabs(["📋 Tổng Quan Đơn Hàng", "🔄 Xử Lý Khách Trả Hàng", "📊 Sổ Cái Bán Hàng Chi Tiết"])
+        # Đã bổ sung thêm tab_suaxoa vào danh sách
+        tab_tongquan, tab_hoantra, tab_chitiet, tab_suaxoa = st.tabs(["📋 Tổng Quan Đơn Hàng", "🔄 Xử Lý Khách Trả Hàng", "📊 Sổ Cái Bán Hàng Chi Tiết", "🛠️ Sửa / Xóa Đơn Lỗi"])
     else: 
         tab_tongquan = st.container()
         
@@ -1510,6 +1511,71 @@ elif menu == "Lịch Sử Đơn Hàng":
                 st.download_button("📥 XUẤT SỔ CÁI BÁN HÀNG CHI TIẾT (EXCEL)", data=df_filtered.to_csv(index=False, encoding='utf-8-sig'), file_name=f"SoCai_BanHang_ChiTiet_{today_str}.csv", mime="text/csv", type="primary")
             else:
                 st.info("📭 Bảng dữ liệu đang trống. Khi có đơn hàng được giao hoàn thành, hệ thống sẽ tự động thống kê sổ cái chi tiết tại đây.")
+                
+        # === TAB MỚI: SỬA / XÓA ĐƠN HÀNG LỖI ===
+        with tab_suaxoa:
+            st.markdown("#### 🛠️ Chỉnh sửa hoặc Xóa bỏ Đơn Hàng Lỗi")
+            st.warning("⚠️ Lưu ý: Hành động xóa sẽ xóa vĩnh viễn đơn hàng khỏi cơ sở dữ liệu. Vui lòng cẩn trọng!")
+            
+            with get_connection() as conn:
+                # Lấy danh sách 200 đơn gần nhất để chọn sửa/xóa
+                df_sua_xoa = pd.read_sql_query('''
+                    SELECT dh.id, dh.ma_don_hien_thi, kh.ten_khach, dh.tong_tien, dh.tien_con_no 
+                    FROM don_hang dh 
+                    LEFT JOIN khach_hang kh ON dh.khach_hang_id = kh.id 
+                    ORDER BY dh.id DESC LIMIT 200
+                ''', conn.connection)
+            
+            if not df_sua_xoa.empty:
+                don_dict_sx = dict(zip(df_sua_xoa['id'], df_sua_xoa['ma_don_hien_thi'] + " - " + df_sua_xoa['ten_khach'].fillna('Khách vô danh')))
+                id_don_can_xu_ly = st.selectbox(
+                    "🔍 Chọn đơn hàng cần Sửa / Xóa (hiển thị 200 đơn gần nhất):", 
+                    options=[None] + list(don_dict_sx.keys()), 
+                    format_func=lambda x: "--- Bấm vào đây để chọn đơn hàng ---" if x is None else don_dict_sx.get(x)
+                )
+                
+                if id_don_can_xu_ly:
+                    don_info_sx = df_sua_xoa[df_sua_xoa['id'] == id_don_can_xu_ly].iloc[0]
+                    st.markdown(f"Đang chọn mã đơn: **{don_info_sx['ma_don_hien_thi']}** | Tổng tiền hiện tại: **{fmt_vn(to_float(don_info_sx['tong_tien']))} đ** | Nợ lại hiện tại: **{fmt_vn(to_float(don_info_sx['tien_con_no']))} đ**")
+                    st.markdown("---")
+                    
+                    col_sua, col_xoa = st.columns(2)
+                    
+                    # TÍNH NĂNG XÓA ĐƠN HÀNG
+                    with col_xoa:
+                        st.error("🗑️ XÓA ĐƠN HÀNG NÀY")
+                        xac_nhan_xoa = st.checkbox("Tôi chắc chắn muốn xóa vĩnh viễn đơn hàng này", key=f"del_{id_don_can_xu_ly}")
+                        if st.button("Xóa Đơn Hàng", type="primary", disabled=not xac_nhan_xoa):
+                            with get_connection() as c_del:
+                                cur = c_del.cursor()
+                                # 1. Xóa toàn bộ chi tiết mặt hàng thuộc đơn này
+                                cur.execute("DELETE FROM chi_tiet_don_hang WHERE don_hang_id=?", (to_int(id_don_can_xu_ly),))
+                                # 2. Xóa đơn hàng chính
+                                cur.execute("DELETE FROM don_hang WHERE id=?", (to_int(id_don_can_xu_ly),))
+                                c_del.commit()
+                                
+                            st.success(f"Đã dọn dẹp và xóa sạch đơn {don_info_sx['ma_don_hien_thi']} khỏi hệ thống!")
+                            st.rerun()
+                            
+                    # TÍNH NĂNG CẬP NHẬT TIỀN
+                    with col_sua:
+                        st.info("✏️ SỬA NHANH SỐ TIỀN / CÔNG NỢ")
+                        with st.form(f"form_sua_{id_don_can_xu_ly}"):
+                            tien_moi = st.number_input("Tổng Tiền mới (đ):", value=to_float(don_info_sx['tong_tien']), step=1000.0)
+                            no_moi = st.number_input("Nợ Lại mới (đ):", value=to_float(don_info_sx['tien_con_no']), step=1000.0)
+                            
+                            if st.form_submit_button("Lưu Thay Đổi"):
+                                da_thanh_toan_moi = 1 if no_moi <= 0 else 0
+                                with get_connection() as c_upd:
+                                    cur = c_upd.cursor()
+                                    cur.execute("UPDATE don_hang SET tong_tien=?, tien_con_no=?, da_thanh_toan=? WHERE id=?", 
+                                                (tien_moi, no_moi, da_thanh_toan_moi, to_int(id_don_can_xu_ly)))
+                                    c_upd.commit()
+                                st.success("Cập nhật số tiền thành công!")
+                                st.rerun()
+            else:
+                st.write("Không có dữ liệu đơn hàng nào để xử lý.")
+# ==========================================
 # ==========================================
 # PHÂN HỆ 6: CÀI ĐẶT HỆ THỐNG - BẢN MASTER/DETAIL MỚI
 # ==========================================
