@@ -1883,7 +1883,7 @@ elif menu == "Cài Đặt Hệ Thống":
                         with get_connection() as conn:
                             cur = conn.cursor()
                             if old_p != g_new: cur.execute("INSERT INTO lich_su_gia (id, khach_hang_id, loai_than_id, gia_cu, gia_moi, ngay_thay_doi) VALUES (?,?,?,?,?,?)", (get_next_id('lich_su_gia', cur), to_int(id_k), to_int(id_t), old_p, g_new, ts_change))
-                            cur.execute("INSERT INTO gia_rieng (khach_hang_id, loai_than_id, gia_uu_dai) VALUES (?,?,?) ON CONFLICT (khach_hang_id, loai_than_id) DO UPDATE SET gia_uu_dai = EXCLUDED.gia_uu_dai", (to_int(id_k), to_int(id_t), g_new))
+                            cur.execute("REPLACE INTO gia_rieng (khach_hang_id, loai_than_id, gia_uu_dai) VALUES (?,?,?)", (to_int(id_k), to_int(id_t), g_new))
                             conn.commit()
                         st.success("Cố định biểu giá thành công!"); st.rerun()
             with get_connection() as conn: df_pq = pd.read_sql_query('SELECT kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than", gr.gia_uu_dai as "Giá Riêng (đ/kg)" FROM gia_rieng gr JOIN khach_hang kh ON gr.khach_hang_id = kh.id JOIN loai_than lt ON gr.loai_than_id = lt.id', conn.connection)
