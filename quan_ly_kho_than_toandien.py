@@ -1995,36 +1995,16 @@ elif menu == "Cài Đặt Hệ Thống":
                     with col_info3:
                         st.write(f"**Giá:** {row_item['Giá Riêng (đ/kg)']:,.0f} đ")
                     with col_del:
-                        if st.button("🗑️ Xóa", key=f"del_gr_{row_item['khach_hang_id']}_{row_item['loai_than_id']}"):
+                        # ĐÃ THÊM '{idx}' VÀO KEY ĐỂ ĐẢM BẢO KHÔNG BAO GIỜ TRÙNG LẶP
+                        if st.button("🗑️ Xóa", key=f"del_gr_{idx}_{row_item['khach_hang_id']}_{row_item['loai_than_id']}"):
                             with get_connection() as conn_del:
                                 conn_del.execute("DELETE FROM gia_rieng WHERE khach_hang_id = ? AND loai_than_id = ?", (row_item['khach_hang_id'], row_item['loai_than_id']))
                                 conn_del.commit()
-                            st.success(f"Đã xóa thành công cơ chế giá!")
+                            st.success("Đã xóa thành công cơ chế giá!")
                             st.rerun()
                     st.divider()
             else:
                 st.info("Chưa có cơ chế giá riêng nào được thiết lập.")
-
-        with tab_lichsu:
-            st.markdown("#### 📜 Nhật Ký Thay Đổi Giá")
-            with get_connection() as conn:
-                df_his = pd.read_sql_query("""
-                    SELECT 
-                        ls.ngay_thay_doi as "Thời Gian", 
-                        kh.ten_khach as "Khách Hàng", 
-                        lt.ten_than as "Loại Than",
-                        ls.gia_cu as "Giá Cũ (đ)", 
-                        ls.gia_moi as "Giá Mới (đ)"
-                    FROM lich_su_gia ls
-                    LEFT JOIN khach_hang kh ON ls.khach_hang_id = kh.id
-                    LEFT JOIN loai_than lt ON ls.loai_than_id = lt.id
-                    ORDER BY ls.ngay_thay_doi DESC
-                """, conn.connection)
-                
-            if not df_his.empty:
-                st.dataframe(df_his.style.format({'Giá Cũ (đ)': '{:,.0f}', 'Giá Mới (đ)': '{:,.0f}'}), hide_index=True, use_container_width=True)
-            else:
-                st.info("Chưa có lịch sử thay đổi giá nào được ghi nhận.")
     # ------------------ 5. CẤU HÌNH IN BILL & ZALO BOT ------------------
     elif tab_sys == "5. Hệ Thống (In Bill & Zalo Bot)":
         with get_connection() as conn: 
