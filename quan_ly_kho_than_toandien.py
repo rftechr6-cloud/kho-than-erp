@@ -1928,8 +1928,6 @@ elif menu == "Cài Đặt Hệ Thống":
 
    # ==========================================
 # ==========================================
-# 4. PHÂN QUYỀN GIÁ RIÊNG
-# ==========================================
 elif tab_sys == "4. Phân Quyền Giá Riêng":
     tab_caidat, tab_lichsu = st.tabs(["⚙️ Cài Đặt Giá Cơ Chế", "📜 Lịch Sử Đổi Giá"])
     
@@ -1960,7 +1958,8 @@ elif tab_sys == "4. Phân Quyền Giá Riêng":
                         thoi_gian_hien_tai = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
                         nguoi_thuc_hien = st.session_state.get('current_user', 'Admin')
 
-                        if row: # NẾU ĐÃ CÓ -> CẬP NHẬT
+                        if row:
+                            # NẾU ĐÃ CÓ -> CẬP NHẬT GHI ĐÈ GIÁ MỚI
                             record_id = row[0]
                             gia_cu = row[1]
                             
@@ -1973,7 +1972,8 @@ elif tab_sys == "4. Phân Quyền Giá Riêng":
                                 st.success(f"✅ Đã CẬP NHẬT giá cơ chế thành công! (Giá cũ: {gia_cu:,.0f} -> Giá mới: {gia_moi:,.0f})")
                             else:
                                 st.info("⚠️ Mức giá mới nhập giống mức giá đang áp dụng. Không thay đổi.")
-                        else: # NẾU CHƯA CÓ -> THÊM MỚI
+                        else:
+                            # NẾU CHƯA CÓ -> THÊM MỚI
                             cur.execute("INSERT INTO gia_rieng (khach_hang_id, loai_than_id, gia_ban) VALUES (?, ?, ?)", (kh_id, than_id, gia_moi))
                             cur.execute("""
                                 INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, thoi_gian, nguoi_thay_doi, loai_thay_doi) 
@@ -2022,7 +2022,7 @@ elif tab_sys == "4. Phân Quyền Giá Riêng":
             st.info("Chưa có lịch sử thay đổi giá nào được ghi nhận.")
 
     # ------------------ 5. CẤU HÌNH IN BILL & ZALO BOT ------------------
-elif tab_sys == "5. Hệ Thống (In Bill & Zalo Bot)":
+        elif tab_sys == "5. Hệ Thống (In Bill & Zalo Bot)":
         with get_connection() as conn: config = pd.read_sql_query("SELECT * FROM cau_hinh_in WHERE id = 1", conn.connection).iloc[0]
         t_in, t_zl = st.tabs(["🖨️ Thông tin Doanh Nghiệp (In Bill)", "🤖 Cấu hình Zalo Bot Cảnh Báo"])
         with t_in:
@@ -2078,7 +2078,7 @@ elif tab_sys == "6. Quản Lý Tài Khoản":
                                     if st.form_submit_button("🗑️ Xóa vĩnh viễn"): cb_xoa_user(r['id']); st.rerun()
 
    # ------------------ 7. SYSTEM LOG ------------------
-elif tab_sys == "7. System Log":
+        elif tab_sys == "7. System Log":
         st.markdown("### 🛠️ NHẬT KÝ HỆ THỐNG")
         if is_manager: st.warning("⚠️ Bạn là Quản lý, bạn chỉ có quyền xem nhật ký hệ thống.")
         elif is_admin:
