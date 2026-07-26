@@ -2029,7 +2029,7 @@ elif danh_muc_chon == "4. Phân Quyền Giá Riêng":
             st.info("Chưa có lịch sử thay đổi giá nào được ghi nhận.")
 
     # ------------------ 5. CẤU HÌNH IN BILL & ZALO BOT ------------------
-    elif tab_sys == "5. Hệ Thống (In Bill & Zalo Bot)":
+elif tab_sys == "5. Hệ Thống (In Bill & Zalo Bot)":
         with get_connection() as conn: config = pd.read_sql_query("SELECT * FROM cau_hinh_in WHERE id = 1", conn.connection).iloc[0]
         t_in, t_zl = st.tabs(["🖨️ Thông tin Doanh Nghiệp (In Bill)", "🤖 Cấu hình Zalo Bot Cảnh Báo"])
         with t_in:
