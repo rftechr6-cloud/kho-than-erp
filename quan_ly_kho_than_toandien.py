@@ -1930,11 +1930,10 @@ elif menu == "Cài Đặt Hệ Thống":
     # 4. PHÂN QUYỀN GIÁ RIÊNG
     # ==========================================
     elif tab_sys == "4. Phân Quyền Giá Riêng":
-        tab_caidat, tab_lichsu = st.tabs(["⚙️ Cài Đặt Giá Cơ Chế", "📜 Lịch Sử Đổi Giá"])
+        tab_caidat, tab_danhsach, tab_lichsu = st.tabs(["⚙️ Thêm / Cập Nhật Giá", "📋 Danh Sách & Xóa", "📜 Lịch Sử Đổi Giá"])
         
         with tab_caidat:
             with get_connection() as conn:
-                # Lấy danh sách Khách hàng & Than từ DB của bạn
                 df_kh = pd.read_sql_query("SELECT id, id || ' - ' || ten_khach as label FROM khach_hang", conn.connection)
                 df_than = pd.read_sql_query("SELECT id, ten_than FROM loai_than", conn.connection)
                 
@@ -1942,67 +1941,67 @@ elif menu == "Cài Đặt Hệ Thống":
             than_dict = dict(zip(df_than['id'], df_than['ten_than']))
             
             with st.form("form_gia_rieng"):
+                st.markdown("### Thiết lập cơ chế giá riêng cho khách hàng")
                 kh_id = st.selectbox("Chọn Đối Tác:", options=list(kh_dict.keys()), format_func=lambda x: kh_dict[x])
                 than_id = st.selectbox("Chủng Loại Than Áp Dụng:", options=list(than_dict.keys()), format_func=lambda x: than_dict[x])
+                gia_moi = st.number_input("Mức giá ưu đãi mới (đ/kg):", min_value=0.0, step=500.0)
                 
-                gia_moi = st.number_input("Thiết lập giá mới (đ/kg):", min_value=0.0, step=500.0)
-                
-                if st.form_submit_button("Lưu Cơ Chế", type="primary"):
+                if st.form_submit_button("Lưu / Cập Nhật Cơ Chế", type="primary"):
                     with get_connection() as conn_update:
                         cur = conn_update.cursor()
                         
-                        # Sử dụng đúng tên cột 'gia_uu_dai' theo bảng của bạn
+                        # 1. Lấy giá cũ (nếu có) để ghi lịch sử
                         cur.execute("SELECT gia_uu_dai FROM gia_rieng WHERE khach_hang_id = ? AND loai_than_id = ?", (kh_id, than_id))
                         row = cur.fetchone()
+                        gia_cu = row[0] if row else 0.0
                         
-                        try:
-                            thoi_gian_hien_tai = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
-                            nguoi_thuc_hien = st.session_state.get('current_user', 'Admin')
+                        thoi_gian_hien_tai = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+                        
+                        # 2. Dùng INSERT OR REPLACE tận dụng PRIMARY KEY để chống trùng lặp tuyệt đối
+                        cur.execute("""
+                            INSERT OR REPLACE INTO gia_rieng (khach_hang_id, loai_than_id, gia_uu_dai) 
+                            VALUES (?, ?, ?)
+                        """, (kh_id, than_id, gia_moi))
+                        
+                        # 3. Ghi vào bảng lịch sử
+                        cur.execute("""
+                            INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, ngay_thay_doi) 
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (kh_id, than_id, gia_cu, gia_moi, thoi_gian_hien_tai))
+                        
+                        conn_update.commit()
+                        st.success(f"✅ Đã cập nhật thành công mức giá {gia_moi:,.0f} đ/kg! (Dữ liệu đã được gộp gọn, không bị trùng).")
+                        st.rerun()
 
-                            if row:
-                                # NẾU ĐÃ CÓ -> CẬP NHẬT (UPDATE)
-                                gia_cu = row[0]
-                                if gia_cu != gia_moi:
-                                    cur.execute("UPDATE gia_rieng SET gia_uu_dai = ? WHERE khach_hang_id = ? AND loai_than_id = ?", (gia_moi, kh_id, than_id))
-                                    
-                                    # Ghi vào lịch sử (khớp cột ngay_thay_doi)
-                                    cur.execute("""
-                                        INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, ngay_thay_doi) 
-                                        VALUES (?, ?, ?, ?, ?)
-                                    """, (kh_id, than_id, gia_cu, gia_moi, thoi_gian_hien_tai))
-                                    st.success(f"✅ Đã CẬP NHẬT giá cơ chế thành công! (Giá cũ: {gia_cu:,.0f} -> Giá mới: {gia_moi:,.0f})")
-                                else:
-                                    st.info("⚠️ Mức giá mới nhập giống mức giá đang áp dụng. Không thay đổi.")
-                            else:
-                                # NẾU CHƯA CÓ -> THÊM MỚI (INSERT)
-                                cur.execute("INSERT INTO gia_rieng (khach_hang_id, loai_than_id, gia_uu_dai) VALUES (?, ?, ?)", (kh_id, than_id, gia_moi))
-                                
-                                # Ghi lịch sử thêm mới
-                                cur.execute("""
-                                    INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, ngay_thay_doi) 
-                                    VALUES (?, ?, 0, ?, ?)
-                                """, (kh_id, than_id, gia_moi, thoi_gian_hien_tai))
-                                st.success("✅ Đã THÊM MỚI cơ chế giá riêng thành công!")
-                                
-                            conn_update.commit()
-                            st.rerun() 
-                        except Exception as e:
-                            conn_update.rollback()
-                            st.error(f"❌ Có lỗi xảy ra: {e}")
-
-            # Bảng hiển thị danh sách giá riêng hiện tại (Khớp cột gia_uu_dai)
-            st.markdown("---")
-            st.markdown("#### Danh sách cơ chế giá đang áp dụng")
+        with tab_danhsach:
+            st.markdown("### 📋 Danh Sách Giá Riêng Đang Áp Dụng")
+            st.info("💡 Nếu thấy dòng nào bị thừa hoặc sai giá, bạn có thể bấm nút 'Xóa' bên cạnh để làm sạch dữ liệu.")
+            
             with get_connection() as conn:
                 df_hien_tai = pd.read_sql_query("""
-                    SELECT kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than", g.gia_uu_dai as "Giá Riêng (đ/kg)" 
+                    SELECT g.khach_hang_id, g.loai_than_id, kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than", g.gia_uu_dai as "Giá Riêng (đ/kg)" 
                     FROM gia_rieng g 
                     JOIN khach_hang kh ON g.khach_hang_id = kh.id 
                     JOIN loai_than lt ON g.loai_than_id = lt.id
                 """, conn.connection)
             
             if not df_hien_tai.empty:
-                st.dataframe(df_hien_tai.style.format({'Giá Riêng (đ/kg)': '{:,.0f}'}), hide_index=True, use_container_width=True)
+                for idx, row_item in df_hien_tai.iterrows():
+                    col_info1, col_info2, col_info3, col_del = st.columns([2, 2, 2, 1])
+                    with col_info1:
+                        st.write(f"**Khách:** {row_item['Khách Hàng']}")
+                    with col_info2:
+                        st.write(f"**Than:** {row_item['Loại Than']}")
+                    with col_info3:
+                        st.write(f"**Giá:** {row_item['Giá Riêng (đ/kg)']:,.0f} đ")
+                    with col_del:
+                        if st.button("🗑️ Xóa", key=f"del_gr_{row_item['khach_hang_id']}_{row_item['loai_than_id']}"):
+                            with get_connection() as conn_del:
+                                conn_del.execute("DELETE FROM gia_rieng WHERE khach_hang_id = ? AND loai_than_id = ?", (row_item['khach_hang_id'], row_item['loai_than_id']))
+                                conn_del.commit()
+                            st.success(f"Đã xóa thành công cơ chế giá!")
+                            st.rerun()
+                    st.divider()
             else:
                 st.info("Chưa có cơ chế giá riêng nào được thiết lập.")
 
@@ -2026,7 +2025,6 @@ elif menu == "Cài Đặt Hệ Thống":
                 st.dataframe(df_his.style.format({'Giá Cũ (đ)': '{:,.0f}', 'Giá Mới (đ)': '{:,.0f}'}), hide_index=True, use_container_width=True)
             else:
                 st.info("Chưa có lịch sử thay đổi giá nào được ghi nhận.")
-
     # ------------------ 5. CẤU HÌNH IN BILL & ZALO BOT ------------------
     elif tab_sys == "5. Hệ Thống (In Bill & Zalo Bot)":
         with get_connection() as conn: 
