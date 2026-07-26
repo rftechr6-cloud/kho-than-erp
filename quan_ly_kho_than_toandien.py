@@ -2037,11 +2037,9 @@ elif menu == "Cài Đặt Hệ Thống":
 
     # ------------------ 6. QUẢN LÝ TÀI KHOẢN (ADMIN) ------------------
     elif tab_sys == "6. Quản Lý Tài Khoản":
-        if not is_admin: 
-            st.error("🔒 Chỉ quản trị viên (Admin) mới có quyền truy cập khu vực này.")
+        if not is_admin: st.error("🔒 Chỉ quản trị viên (Admin) mới có quyền truy cập khu vực này.")
         else:
-            with get_connection() as conn: 
-                df_users = pd.read_sql_query("SELECT id, username, role, status FROM users WHERE username != 'admin'", conn.connection)
+            with get_connection() as conn: df_users = pd.read_sql_query("SELECT id, username, role, status FROM users WHERE username != 'admin'", conn.connection)
             t_u1, t_u2 = st.tabs(["🟡 Phê Duyệt Mới", "🟢 Cấp Quyền & Xóa"])
             with t_u1:
                 if not df_users.empty and 'Chờ duyệt' in df_users['status'].values:
@@ -2052,14 +2050,10 @@ elif menu == "Cài Đặt Hệ Thống":
                             c1, c2 = st.columns(2)
                             with c1: 
                                 if st.form_submit_button("✅ Cấp quyền"):
-                                    with get_connection() as c: 
-                                        c.execute("UPDATE users SET status='Đã duyệt', role=? WHERE id=?", (role_assign, r['id']))
-                                        c.commit()
+                                    with get_connection() as c: c.execute("UPDATE users SET status='Đã duyệt', role=? WHERE id=?", (role_assign, r['id'])); c.commit()
                                     st.rerun()
                             with c2:
-                                if st.form_submit_button("❌ Xóa"): 
-                                    cb_xoa_user(r['id'])
-                                    st.rerun()
+                                if st.form_submit_button("❌ Xóa"): cb_xoa_user(r['id']); st.rerun()
             with t_u2:
                 if not df_users.empty:
                     for idx, r in df_users[df_users['status'] == 'Đã duyệt'].iterrows():
@@ -2069,14 +2063,11 @@ elif menu == "Cài Đặt Hệ Thống":
                                 c1, c2 = st.columns(2)
                                 with c1:
                                     if st.form_submit_button("💾 Lưu Quyền Mới"):
-                                        with get_connection() as c: 
-                                            c.execute("UPDATE users SET role=? WHERE id=?", (new_role, r['id']))
-                                            c.commit()
+                                        with get_connection() as c: c.execute("UPDATE users SET role=? WHERE id=?", (new_role, r['id'])); c.commit()
                                         st.rerun()
                                 with c2:
-                                    if st.form_submit_button("🗑️ Xóa vĩnh viễn"): 
-                                        cb_xoa_user(r['id'])
-                                        st.rerun()
+                                    if st.form_submit_button("🗑️ Xóa vĩnh viễn"): cb_xoa_user(r['id']); st.rerun()
+
 
     # ------------------ 7. SYSTEM LOG ------------------
     elif tab_sys == "7. System Log":
