@@ -1934,7 +1934,7 @@ elif menu == "Cài Đặt Hệ Thống":
         
         with tab_caidat:
             with get_connection() as conn:
-                # Lấy danh sách Khách hàng & Than để đưa vào Selectbox
+                # Lấy danh sách Khách hàng & Than từ DB của bạn
                 df_kh = pd.read_sql_query("SELECT id, id || ' - ' || ten_khach as label FROM khach_hang", conn.connection)
                 df_than = pd.read_sql_query("SELECT id, ten_than FROM loai_than", conn.connection)
                 
@@ -1945,14 +1945,14 @@ elif menu == "Cài Đặt Hệ Thống":
                 kh_id = st.selectbox("Chọn Đối Tác:", options=list(kh_dict.keys()), format_func=lambda x: kh_dict[x])
                 than_id = st.selectbox("Chủng Loại Than Áp Dụng:", options=list(than_dict.keys()), format_func=lambda x: than_dict[x])
                 
-                gia_moi = st.number_input("Thiết lập giá mới (đ/kg):", min_value=0, step=500)
+                gia_moi = st.number_input("Thiết lập giá mới (đ/kg):", min_value=0.0, step=500.0)
                 
                 if st.form_submit_button("Lưu Cơ Chế", type="primary"):
                     with get_connection() as conn_update:
                         cur = conn_update.cursor()
                         
-                        # Kiểm tra xem khách đã có giá cho loại than này chưa
-                        cur.execute("SELECT id, gia_ban FROM gia_rieng WHERE khach_hang_id = ? AND loai_than_id = ?", (kh_id, than_id))
+                        # Sử dụng đúng tên cột 'gia_uu_dai' theo bảng của bạn
+                        cur.execute("SELECT gia_uu_dai FROM gia_rieng WHERE khach_hang_id = ? AND loai_than_id = ?", (kh_id, than_id))
                         row = cur.fetchone()
                         
                         try:
@@ -1960,26 +1960,28 @@ elif menu == "Cài Đặt Hệ Thống":
                             nguoi_thuc_hien = st.session_state.get('current_user', 'Admin')
 
                             if row:
-                                # NẾU ĐÃ CÓ -> CẬP NHẬT GHI ĐÈ GIÁ MỚI
-                                record_id = row[0]
-                                gia_cu = row[1]
-                                
+                                # NẾU ĐÃ CÓ -> CẬP NHẬT (UPDATE)
+                                gia_cu = row[0]
                                 if gia_cu != gia_moi:
-                                    cur.execute("UPDATE gia_rieng SET gia_ban = ? WHERE id = ?", (gia_moi, record_id))
+                                    cur.execute("UPDATE gia_rieng SET gia_uu_dai = ? WHERE khach_hang_id = ? AND loai_than_id = ?", (gia_moi, kh_id, than_id))
+                                    
+                                    # Ghi vào lịch sử (khớp cột ngay_thay_doi)
                                     cur.execute("""
-                                        INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, thoi_gian, nguoi_thay_doi, loai_thay_doi) 
-                                        VALUES (?, ?, ?, ?, ?, ?, 'Thay đổi giá riêng')
-                                    """, (kh_id, than_id, gia_cu, gia_moi, thoi_gian_hien_tai, nguoi_thuc_hien))
+                                        INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, ngay_thay_doi) 
+                                        VALUES (?, ?, ?, ?, ?)
+                                    """, (kh_id, than_id, gia_cu, gia_moi, thoi_gian_hien_tai))
                                     st.success(f"✅ Đã CẬP NHẬT giá cơ chế thành công! (Giá cũ: {gia_cu:,.0f} -> Giá mới: {gia_moi:,.0f})")
                                 else:
                                     st.info("⚠️ Mức giá mới nhập giống mức giá đang áp dụng. Không thay đổi.")
                             else:
-                                # NẾU CHƯA CÓ -> THÊM MỚI
-                                cur.execute("INSERT INTO gia_rieng (khach_hang_id, loai_than_id, gia_ban) VALUES (?, ?, ?)", (kh_id, than_id, gia_moi))
+                                # NẾU CHƯA CÓ -> THÊM MỚI (INSERT)
+                                cur.execute("INSERT INTO gia_rieng (khach_hang_id, loai_than_id, gia_uu_dai) VALUES (?, ?, ?)", (kh_id, than_id, gia_moi))
+                                
+                                # Ghi lịch sử thêm mới
                                 cur.execute("""
-                                    INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, thoi_gian, nguoi_thay_doi, loai_thay_doi) 
-                                    VALUES (?, ?, 0, ?, ?, ?, 'Thêm mới giá riêng')
-                                """, (kh_id, than_id, gia_moi, thoi_gian_hien_tai, nguoi_thuc_hien))
+                                    INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, ngay_thay_doi) 
+                                    VALUES (?, ?, 0, ?, ?)
+                                """, (kh_id, than_id, gia_moi, thoi_gian_hien_tai))
                                 st.success("✅ Đã THÊM MỚI cơ chế giá riêng thành công!")
                                 
                             conn_update.commit()
@@ -1988,17 +1990,16 @@ elif menu == "Cài Đặt Hệ Thống":
                             conn_update.rollback()
                             st.error(f"❌ Có lỗi xảy ra: {e}")
 
-            # Bảng hiển thị danh sách giá riêng hiện tại
-        st.markdown("---")
-        st.markdown("#### Danh sách cơ chế giá đang áp dụng")
-        with get_connection() as conn:
-            # THAY ĐỔI TÊN BẢNG SAU CHỮ 'FROM' VÀ 'JOIN' CHO KHỚP
-            df_hien_tai = pd.read_sql_query("""
-                SELECT kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than", g.gia_ban as "Giá Riêng (đ/kg)" 
-                FROM co_che_gia g 
-                JOIN khach_hang kh ON g.khach_hang_id = kh.id 
-                JOIN loai_than lt ON g.loai_than_id = lt.id
-            """, conn.connection)
+            # Bảng hiển thị danh sách giá riêng hiện tại (Khớp cột gia_uu_dai)
+            st.markdown("---")
+            st.markdown("#### Danh sách cơ chế giá đang áp dụng")
+            with get_connection() as conn:
+                df_hien_tai = pd.read_sql_query("""
+                    SELECT kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than", g.gia_uu_dai as "Giá Riêng (đ/kg)" 
+                    FROM gia_rieng g 
+                    JOIN khach_hang kh ON g.khach_hang_id = kh.id 
+                    JOIN loai_than lt ON g.loai_than_id = lt.id
+                """, conn.connection)
             
             if not df_hien_tai.empty:
                 st.dataframe(df_hien_tai.style.format({'Giá Riêng (đ/kg)': '{:,.0f}'}), hide_index=True, use_container_width=True)
@@ -2010,12 +2011,15 @@ elif menu == "Cài Đặt Hệ Thống":
             with get_connection() as conn:
                 df_his = pd.read_sql_query("""
                     SELECT 
-                        ls.thoi_gian as "Thời Gian", kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than",
-                        ls.loai_thay_doi as "Hành Động", ls.gia_cu as "Giá Cũ (đ)", ls.gia_moi as "Giá Mới (đ)", ls.nguoi_thay_doi as "Người Đổi"
+                        ls.ngay_thay_doi as "Thời Gian", 
+                        kh.ten_khach as "Khách Hàng", 
+                        lt.ten_than as "Loại Than",
+                        ls.gia_cu as "Giá Cũ (đ)", 
+                        ls.gia_moi as "Giá Mới (đ)"
                     FROM lich_su_gia ls
                     LEFT JOIN khach_hang kh ON ls.khach_hang_id = kh.id
                     LEFT JOIN loai_than lt ON ls.loai_than_id = lt.id
-                    ORDER BY ls.thoi_gian DESC
+                    ORDER BY ls.ngay_thay_doi DESC
                 """, conn.connection)
                 
             if not df_his.empty:
