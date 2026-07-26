@@ -1927,9 +1927,10 @@ elif menu == "Cài Đặt Hệ Thống":
                             if st.button("❌", key=f"del_tx_{r['id']}"): cb_xoa_taixe(r['id']); st.rerun()
 
    # ==========================================
+# ==========================================
 # 4. PHÂN QUYỀN GIÁ RIÊNG
 # ==========================================
-   elif danh_muc_chon == "4. Phân Quyền Giá Riêng":
+elif tab_sys == "4. Phân Quyền Giá Riêng":
     tab_caidat, tab_lichsu = st.tabs(["⚙️ Cài Đặt Giá Cơ Chế", "📜 Lịch Sử Đổi Giá"])
     
     with tab_caidat:
@@ -1951,8 +1952,7 @@ elif menu == "Cài Đặt Hệ Thống":
                 with get_connection() as conn_update:
                     cur = conn_update.cursor()
                     
-                    # 1. KIỂM TRA XEM ĐÃ CÓ GIÁ RIÊNG CHO KHÁCH & MẶT HÀNG NÀY CHƯA
-                    # (Lưu ý: Thay 'gia_rieng' bằng tên bảng lưu giá cơ chế thực tế của bạn)
+                    # Kiểm tra xem khách đã có giá cho loại than này chưa
                     cur.execute("SELECT id, gia_ban FROM gia_rieng WHERE khach_hang_id = ? AND loai_than_id = ?", (kh_id, than_id))
                     row = cur.fetchone()
                     
@@ -1960,59 +1960,56 @@ elif menu == "Cài Đặt Hệ Thống":
                         thoi_gian_hien_tai = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
                         nguoi_thuc_hien = st.session_state.get('current_user', 'Admin')
 
-                        if row:
-                            # NẾU ĐÃ CÓ -> THỰC HIỆN UPDATE (CẬP NHẬT GHI ĐÈ)
+                        if row: # NẾU ĐÃ CÓ -> CẬP NHẬT
                             record_id = row[0]
                             gia_cu = row[1]
                             
                             if gia_cu != gia_moi:
-                                # Cập nhật giá mới
                                 cur.execute("UPDATE gia_rieng SET gia_ban = ? WHERE id = ?", (gia_moi, record_id))
-                                
-                                # Ghi vào lịch sử
-                                # (Lưu ý: Thay 'lich_su_gia' bằng tên bảng lịch sử thực tế của bạn)
                                 cur.execute("""
                                     INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, thoi_gian, nguoi_thay_doi, loai_thay_doi) 
                                     VALUES (?, ?, ?, ?, ?, ?, 'Thay đổi giá riêng')
                                 """, (kh_id, than_id, gia_cu, gia_moi, thoi_gian_hien_tai, nguoi_thuc_hien))
-                                
                                 st.success(f"✅ Đã CẬP NHẬT giá cơ chế thành công! (Giá cũ: {gia_cu:,.0f} -> Giá mới: {gia_moi:,.0f})")
                             else:
-                                st.info("⚠️ Mức giá mới nhập vào giống hệt mức giá đang áp dụng. Không có sự thay đổi.")
-                        else:
-                            # NẾU CHƯA CÓ -> THỰC HIỆN INSERT (THÊM MỚI)
+                                st.info("⚠️ Mức giá mới nhập giống mức giá đang áp dụng. Không thay đổi.")
+                        else: # NẾU CHƯA CÓ -> THÊM MỚI
                             cur.execute("INSERT INTO gia_rieng (khach_hang_id, loai_than_id, gia_ban) VALUES (?, ?, ?)", (kh_id, than_id, gia_moi))
-                            
-                            # Ghi vào lịch sử (Giá cũ mặc định là 0 hoặc rỗng)
                             cur.execute("""
                                 INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, thoi_gian, nguoi_thay_doi, loai_thay_doi) 
                                 VALUES (?, ?, 0, ?, ?, ?, 'Thêm mới giá riêng')
                             """, (kh_id, than_id, gia_moi, thoi_gian_hien_tai, nguoi_thuc_hien))
-                            
                             st.success("✅ Đã THÊM MỚI cơ chế giá riêng thành công!")
                             
                         conn_update.commit()
-                        st.rerun() # Tải lại trang để bảng bên dưới cập nhật
-                        
+                        st.rerun() 
                     except Exception as e:
                         conn_update.rollback()
                         st.error(f"❌ Có lỗi xảy ra: {e}")
 
-        # ... (Đoạn code hiển thị bảng danh sách giá riêng hiện tại của bạn để ở đây) ...
+        # Bảng hiển thị danh sách giá riêng hiện tại
+        st.markdown("---")
+        st.markdown("#### Danh sách cơ chế giá đang áp dụng")
+        with get_connection() as conn:
+            df_hien_tai = pd.read_sql_query("""
+                SELECT kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than", g.gia_ban as "Giá Riêng (đ/kg)" 
+                FROM gia_rieng g 
+                JOIN khach_hang kh ON g.khach_hang_id = kh.id 
+                JOIN loai_than lt ON g.loai_than_id = lt.id
+            """, conn.connection)
+        
+        if not df_hien_tai.empty:
+            st.dataframe(df_hien_tai.style.format({'Giá Riêng (đ/kg)': '{:,.0f}'}), hide_index=True, use_container_width=True)
+        else:
+            st.info("Chưa có cơ chế giá riêng nào được thiết lập.")
 
     with tab_lichsu:
         st.markdown("#### 📜 Nhật Ký Thay Đổi Giá")
         with get_connection() as conn:
-            # Truy vấn bảng lịch sử và JOIN để lấy tên khách, tên than
             df_his = pd.read_sql_query("""
                 SELECT 
-                    ls.thoi_gian as "Thời Gian",
-                    kh.ten_khach as "Khách Hàng",
-                    lt.ten_than as "Loại Than",
-                    ls.loai_thay_doi as "Hành Động",
-                    ls.gia_cu as "Giá Cũ (đ)",
-                    ls.gia_moi as "Giá Mới (đ)",
-                    ls.nguoi_thay_doi as "Người Đổi"
+                    ls.thoi_gian as "Thời Gian", kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than",
+                    ls.loai_thay_doi as "Hành Động", ls.gia_cu as "Giá Cũ (đ)", ls.gia_moi as "Giá Mới (đ)", ls.nguoi_thay_doi as "Người Đổi"
                 FROM lich_su_gia ls
                 LEFT JOIN khach_hang kh ON ls.khach_hang_id = kh.id
                 LEFT JOIN loai_than lt ON ls.loai_than_id = lt.id
@@ -2020,11 +2017,7 @@ elif menu == "Cài Đặt Hệ Thống":
             """, conn.connection)
             
         if not df_his.empty:
-            # Format tiền tệ cho đẹp
-            st.dataframe(df_his.style.format({
-                'Giá Cũ (đ)': '{:,.0f}', 
-                'Giá Mới (đ)': '{:,.0f}'
-            }), hide_index=True, use_container_width=True)
+            st.dataframe(df_his.style.format({'Giá Cũ (đ)': '{:,.0f}', 'Giá Mới (đ)': '{:,.0f}'}), hide_index=True, use_container_width=True)
         else:
             st.info("Chưa có lịch sử thay đổi giá nào được ghi nhận.")
 
