@@ -2035,40 +2035,71 @@ elif menu == "Cài Đặt Hệ Thống":
                     st.success("Cấu hình Zalo đã được thiết lập thành công!")
                     st.rerun()
 
-    # ------------------ 6. QUẢN LÝ TÀI KHOẢN (ADMIN) ------------------
+  # ------------------ 6. QUẢN LÝ TÀI KHOẢN (ADMIN) ------------------
     elif tab_sys == "6. Quản Lý Tài Khoản":
-        if not is_admin: st.error("🔒 Chỉ quản trị viên (Admin) mới có quyền truy cập khu vực này.")
+        if not is_admin: 
+            st.error("🔒 Chỉ quản trị viên (Admin) mới có quyền truy cập khu vực này.")
         else:
-            with get_connection() as conn: df_users = pd.read_sql_query("SELECT id, username, role, status FROM users WHERE username != 'admin'", conn.connection)
+            with get_connection() as conn: 
+                # Lấy dữ liệu an toàn (dùng conn trực tiếp thường chuẩn hơn conn.connection với sqlite3)
+                df_users = pd.read_sql_query("SELECT id, username, role, status FROM users WHERE username != 'admin'", conn)
+            
             t_u1, t_u2 = st.tabs(["🟡 Phê Duyệt Mới", "🟢 Cấp Quyền & Xóa"])
+            
+            # --- TAB 1: PHÊ DUYỆT ---
             with t_u1:
-                if not df_users.empty and 'Chờ duyệt' in df_users['status'].values:
-                    for idx, r in df_users[df_users['status'] == 'Chờ duyệt'].iterrows():
+                # Lọc danh sách user chờ duyệt
+                df_pending = df_users[df_users['status'] == 'Chờ duyệt'] if not df_users.empty else pd.DataFrame()
+                
+                if not df_pending.empty:
+                    for idx, r in df_pending.iterrows():
                         with st.form(f"f_approve_{r['id']}"):
-                            st.write(f"Đăng ký: **{r['username']}**")
+                            st.write(f"Đăng ký mới: **{r['username']}**")
                             role_assign = st.selectbox("Gắn chức vụ:", options=["ketoan", "laixe", "manager"])
                             c1, c2 = st.columns(2)
                             with c1: 
-                                if st.form_submit_button("✅ Cấp quyền"):
-                                    with get_connection() as c: c.execute("UPDATE users SET status='Đã duyệt', role=? WHERE id=?", (role_assign, r['id'])); c.commit()
+                                if st.form_submit_button("✅ Cấp quyền", use_container_width=True):
+                                    with get_connection() as c: 
+                                        c.execute("UPDATE users SET status='Đã duyệt', role=? WHERE id=?", (role_assign, r['id']))
+                                        c.commit()
+                                    st.success(f"Đã duyệt cho {r['username']}!")
                                     st.rerun()
                             with c2:
-                                if st.form_submit_button("❌ Xóa"): cb_xoa_user(r['id']); st.rerun()
+                                if st.form_submit_button("❌ Từ chối / Xóa", use_container_width=True): 
+                                    cb_xoa_user(r['id']) 
+                                    st.rerun()
+                else:
+                    st.info("✅ Hiện tại không có tài khoản nào đang chờ phê duyệt.")
+
+            # --- TAB 2: CẤP QUYỀN & XÓA ---
             with t_u2:
-                if not df_users.empty:
-                    for idx, r in df_users[df_users['status'] == 'Đã duyệt'].iterrows():
+                # Lọc danh sách user đã duyệt
+                df_approved = df_users[df_users['status'] == 'Đã duyệt'] if not df_users.empty else pd.DataFrame()
+                
+                if not df_approved.empty:
+                    for idx, r in df_approved.iterrows():
                         with st.expander(f"👤 {r['username']} (Quyền: {r['role'].upper()})"):
                             with st.form(f"f_edit_u_{r['id']}"):
-                                new_role = st.selectbox("Đổi chức vụ:", options=["ketoan", "laixe", "manager"], index=["ketoan", "laixe", "manager"].index(r['role']))
+                                # Tránh lỗi ValueError nếu role trong database bị ghi sai khác với list options
+                                current_role = r['role'] if r['role'] in ["ketoan", "laixe", "manager"] else "ketoan"
+                                
+                                new_role = st.selectbox("Đổi chức vụ:", 
+                                                        options=["ketoan", "laixe", "manager"], 
+                                                        index=["ketoan", "laixe", "manager"].index(current_role))
                                 c1, c2 = st.columns(2)
                                 with c1:
-                                    if st.form_submit_button("💾 Lưu Quyền Mới"):
-                                        with get_connection() as c: c.execute("UPDATE users SET role=? WHERE id=?", (new_role, r['id'])); c.commit()
+                                    if st.form_submit_button("💾 Lưu Quyền Mới", use_container_width=True):
+                                        with get_connection() as c: 
+                                            c.execute("UPDATE users SET role=? WHERE id=?", (new_role, r['id']))
+                                            c.commit()
+                                        st.success("Đã cập nhật quyền!")
                                         st.rerun()
                                 with c2:
-                                    if st.form_submit_button("🗑️ Xóa vĩnh viễn"): cb_xoa_user(r['id']); st.rerun()
-
-
+                                    if st.form_submit_button("🗑️ Xóa vĩnh viễn", use_container_width=True): 
+                                        cb_xoa_user(r['id'])
+                                        st.rerun()
+                else:
+                    st.info("ℹ️ Chưa có tài khoản nhân viên nào (Ngoại trừ tài khoản Admin).")
     # ------------------ 7. SYSTEM LOG ------------------
     elif tab_sys == "7. System Log":
         st.markdown("### 🛠️ NHẬT KÝ HỆ THỐNG")
