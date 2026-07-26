@@ -2085,7 +2085,7 @@ elif tab_sys == "6. Quản Lý Tài Khoản":
                                     if st.form_submit_button("🗑️ Xóa vĩnh viễn"): cb_xoa_user(r['id']); st.rerun()
 
    # ------------------ 7. SYSTEM LOG ------------------
-    elif tab_sys == "7. System Log":
+elif tab_sys == "7. System Log":
         st.markdown("### 🛠️ NHẬT KÝ HỆ THỐNG")
         if is_manager: st.warning("⚠️ Bạn là Quản lý, bạn chỉ có quyền xem nhật ký hệ thống.")
         elif is_admin:
