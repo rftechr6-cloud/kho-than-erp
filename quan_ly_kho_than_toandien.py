@@ -1926,104 +1926,106 @@ elif menu == "Cài Đặt Hệ Thống":
                         with cc4: 
                             if st.button("❌", key=f"del_tx_{r['id']}"): cb_xoa_taixe(r['id']); st.rerun()
 
-   # ==========================================
 # ==========================================
-elif tab_sys == "4. Phân Quyền Giá Riêng":
-    tab_caidat, tab_lichsu = st.tabs(["⚙️ Cài Đặt Giá Cơ Chế", "📜 Lịch Sử Đổi Giá"])
-    
-    with tab_caidat:
-        with get_connection() as conn:
-            # Lấy danh sách Khách hàng & Than để đưa vào Selectbox
-            df_kh = pd.read_sql_query("SELECT id, id || ' - ' || ten_khach as label FROM khach_hang", conn.connection)
-            df_than = pd.read_sql_query("SELECT id, ten_than FROM loai_than", conn.connection)
-            
-        kh_dict = dict(zip(df_kh['id'], df_kh['label']))
-        than_dict = dict(zip(df_than['id'], df_than['ten_than']))
+    # 4. PHÂN QUYỀN GIÁ RIÊNG
+    # ==========================================
+    elif tab_sys == "4. Phân Quyền Giá Riêng":
+        tab_caidat, tab_lichsu = st.tabs(["⚙️ Cài Đặt Giá Cơ Chế", "📜 Lịch Sử Đổi Giá"])
         
-        with st.form("form_gia_rieng"):
-            kh_id = st.selectbox("Chọn Đối Tác:", options=list(kh_dict.keys()), format_func=lambda x: kh_dict[x])
-            than_id = st.selectbox("Chủng Loại Than Áp Dụng:", options=list(than_dict.keys()), format_func=lambda x: than_dict[x])
+        with tab_caidat:
+            with get_connection() as conn:
+                # Lấy danh sách Khách hàng & Than để đưa vào Selectbox
+                df_kh = pd.read_sql_query("SELECT id, id || ' - ' || ten_khach as label FROM khach_hang", conn.connection)
+                df_than = pd.read_sql_query("SELECT id, ten_than FROM loai_than", conn.connection)
+                
+            kh_dict = dict(zip(df_kh['id'], df_kh['label']))
+            than_dict = dict(zip(df_than['id'], df_than['ten_than']))
             
-            gia_moi = st.number_input("Thiết lập giá mới (đ/kg):", min_value=0, step=500)
-            
-            if st.form_submit_button("Lưu Cơ Chế", type="primary"):
-                with get_connection() as conn_update:
-                    cur = conn_update.cursor()
-                    
-                    # Kiểm tra xem khách đã có giá cho loại than này chưa
-                    cur.execute("SELECT id, gia_ban FROM gia_rieng WHERE khach_hang_id = ? AND loai_than_id = ?", (kh_id, than_id))
-                    row = cur.fetchone()
-                    
-                    try:
-                        thoi_gian_hien_tai = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
-                        nguoi_thuc_hien = st.session_state.get('current_user', 'Admin')
+            with st.form("form_gia_rieng"):
+                kh_id = st.selectbox("Chọn Đối Tác:", options=list(kh_dict.keys()), format_func=lambda x: kh_dict[x])
+                than_id = st.selectbox("Chủng Loại Than Áp Dụng:", options=list(than_dict.keys()), format_func=lambda x: than_dict[x])
+                
+                gia_moi = st.number_input("Thiết lập giá mới (đ/kg):", min_value=0, step=500)
+                
+                if st.form_submit_button("Lưu Cơ Chế", type="primary"):
+                    with get_connection() as conn_update:
+                        cur = conn_update.cursor()
+                        
+                        # Kiểm tra xem khách đã có giá cho loại than này chưa
+                        cur.execute("SELECT id, gia_ban FROM gia_rieng WHERE khach_hang_id = ? AND loai_than_id = ?", (kh_id, than_id))
+                        row = cur.fetchone()
+                        
+                        try:
+                            thoi_gian_hien_tai = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+                            nguoi_thuc_hien = st.session_state.get('current_user', 'Admin')
 
-                        if row:
-                            # NẾU ĐÃ CÓ -> CẬP NHẬT GHI ĐÈ GIÁ MỚI
-                            record_id = row[0]
-                            gia_cu = row[1]
-                            
-                            if gia_cu != gia_moi:
-                                cur.execute("UPDATE gia_rieng SET gia_ban = ? WHERE id = ?", (gia_moi, record_id))
+                            if row:
+                                # NẾU ĐÃ CÓ -> CẬP NHẬT GHI ĐÈ GIÁ MỚI
+                                record_id = row[0]
+                                gia_cu = row[1]
+                                
+                                if gia_cu != gia_moi:
+                                    cur.execute("UPDATE gia_rieng SET gia_ban = ? WHERE id = ?", (gia_moi, record_id))
+                                    cur.execute("""
+                                        INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, thoi_gian, nguoi_thay_doi, loai_thay_doi) 
+                                        VALUES (?, ?, ?, ?, ?, ?, 'Thay đổi giá riêng')
+                                    """, (kh_id, than_id, gia_cu, gia_moi, thoi_gian_hien_tai, nguoi_thuc_hien))
+                                    st.success(f"✅ Đã CẬP NHẬT giá cơ chế thành công! (Giá cũ: {gia_cu:,.0f} -> Giá mới: {gia_moi:,.0f})")
+                                else:
+                                    st.info("⚠️ Mức giá mới nhập giống mức giá đang áp dụng. Không thay đổi.")
+                            else:
+                                # NẾU CHƯA CÓ -> THÊM MỚI
+                                cur.execute("INSERT INTO gia_rieng (khach_hang_id, loai_than_id, gia_ban) VALUES (?, ?, ?)", (kh_id, than_id, gia_moi))
                                 cur.execute("""
                                     INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, thoi_gian, nguoi_thay_doi, loai_thay_doi) 
-                                    VALUES (?, ?, ?, ?, ?, ?, 'Thay đổi giá riêng')
-                                """, (kh_id, than_id, gia_cu, gia_moi, thoi_gian_hien_tai, nguoi_thuc_hien))
-                                st.success(f"✅ Đã CẬP NHẬT giá cơ chế thành công! (Giá cũ: {gia_cu:,.0f} -> Giá mới: {gia_moi:,.0f})")
-                            else:
-                                st.info("⚠️ Mức giá mới nhập giống mức giá đang áp dụng. Không thay đổi.")
-                        else:
-                            # NẾU CHƯA CÓ -> THÊM MỚI
-                            cur.execute("INSERT INTO gia_rieng (khach_hang_id, loai_than_id, gia_ban) VALUES (?, ?, ?)", (kh_id, than_id, gia_moi))
-                            cur.execute("""
-                                INSERT INTO lich_su_gia (khach_hang_id, loai_than_id, gia_cu, gia_moi, thoi_gian, nguoi_thay_doi, loai_thay_doi) 
-                                VALUES (?, ?, 0, ?, ?, ?, 'Thêm mới giá riêng')
-                            """, (kh_id, than_id, gia_moi, thoi_gian_hien_tai, nguoi_thuc_hien))
-                            st.success("✅ Đã THÊM MỚI cơ chế giá riêng thành công!")
-                            
-                        conn_update.commit()
-                        st.rerun() 
-                    except Exception as e:
-                        conn_update.rollback()
-                        st.error(f"❌ Có lỗi xảy ra: {e}")
+                                    VALUES (?, ?, 0, ?, ?, ?, 'Thêm mới giá riêng')
+                                """, (kh_id, than_id, gia_moi, thoi_gian_hien_tai, nguoi_thuc_hien))
+                                st.success("✅ Đã THÊM MỚI cơ chế giá riêng thành công!")
+                                
+                            conn_update.commit()
+                            st.rerun() 
+                        except Exception as e:
+                            conn_update.rollback()
+                            st.error(f"❌ Có lỗi xảy ra: {e}")
 
-        # Bảng hiển thị danh sách giá riêng hiện tại
-        st.markdown("---")
-        st.markdown("#### Danh sách cơ chế giá đang áp dụng")
-        with get_connection() as conn:
-            df_hien_tai = pd.read_sql_query("""
-                SELECT kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than", g.gia_ban as "Giá Riêng (đ/kg)" 
-                FROM gia_rieng g 
-                JOIN khach_hang kh ON g.khach_hang_id = kh.id 
-                JOIN loai_than lt ON g.loai_than_id = lt.id
-            """, conn.connection)
-        
-        if not df_hien_tai.empty:
-            st.dataframe(df_hien_tai.style.format({'Giá Riêng (đ/kg)': '{:,.0f}'}), hide_index=True, use_container_width=True)
-        else:
-            st.info("Chưa có cơ chế giá riêng nào được thiết lập.")
-
-    with tab_lichsu:
-        st.markdown("#### 📜 Nhật Ký Thay Đổi Giá")
-        with get_connection() as conn:
-            df_his = pd.read_sql_query("""
-                SELECT 
-                    ls.thoi_gian as "Thời Gian", kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than",
-                    ls.loai_thay_doi as "Hành Động", ls.gia_cu as "Giá Cũ (đ)", ls.gia_moi as "Giá Mới (đ)", ls.nguoi_thay_doi as "Người Đổi"
-                FROM lich_su_gia ls
-                LEFT JOIN khach_hang kh ON ls.khach_hang_id = kh.id
-                LEFT JOIN loai_than lt ON ls.loai_than_id = lt.id
-                ORDER BY ls.thoi_gian DESC
-            """, conn.connection)
+            # Bảng hiển thị danh sách giá riêng hiện tại
+            st.markdown("---")
+            st.markdown("#### Danh sách cơ chế giá đang áp dụng")
+            with get_connection() as conn:
+                df_hien_tai = pd.read_sql_query("""
+                    SELECT kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than", g.gia_ban as "Giá Riêng (đ/kg)" 
+                    FROM gia_rieng g 
+                    JOIN khach_hang kh ON g.khach_hang_id = kh.id 
+                    JOIN loai_than lt ON g.loai_than_id = lt.id
+                """, conn.connection)
             
-        if not df_his.empty:
-            st.dataframe(df_his.style.format({'Giá Cũ (đ)': '{:,.0f}', 'Giá Mới (đ)': '{:,.0f}'}), hide_index=True, use_container_width=True)
-        else:
-            st.info("Chưa có lịch sử thay đổi giá nào được ghi nhận.")
+            if not df_hien_tai.empty:
+                st.dataframe(df_hien_tai.style.format({'Giá Riêng (đ/kg)': '{:,.0f}'}), hide_index=True, use_container_width=True)
+            else:
+                st.info("Chưa có cơ chế giá riêng nào được thiết lập.")
 
- # ------------------ 5. CẤU HÌNH IN BILL & ZALO BOT ------------------
+        with tab_lichsu:
+            st.markdown("#### 📜 Nhật Ký Thay Đổi Giá")
+            with get_connection() as conn:
+                df_his = pd.read_sql_query("""
+                    SELECT 
+                        ls.thoi_gian as "Thời Gian", kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than",
+                        ls.loai_thay_doi as "Hành Động", ls.gia_cu as "Giá Cũ (đ)", ls.gia_moi as "Giá Mới (đ)", ls.nguoi_thay_doi as "Người Đổi"
+                    FROM lich_su_gia ls
+                    LEFT JOIN khach_hang kh ON ls.khach_hang_id = kh.id
+                    LEFT JOIN loai_than lt ON ls.loai_than_id = lt.id
+                    ORDER BY ls.thoi_gian DESC
+                """, conn.connection)
+                
+            if not df_his.empty:
+                st.dataframe(df_his.style.format({'Giá Cũ (đ)': '{:,.0f}', 'Giá Mới (đ)': '{:,.0f}'}), hide_index=True, use_container_width=True)
+            else:
+                st.info("Chưa có lịch sử thay đổi giá nào được ghi nhận.")
+
+    # ------------------ 5. CẤU HÌNH IN BILL & ZALO BOT ------------------
     elif tab_sys == "5. Hệ Thống (In Bill & Zalo Bot)":
-        with get_connection() as conn: config = pd.read_sql_query("SELECT * FROM cau_hinh_in WHERE id = 1", conn.connection).iloc[0]
+        with get_connection() as conn: 
+            config = pd.read_sql_query("SELECT * FROM cau_hinh_in WHERE id = 1", conn.connection).iloc[0]
         t_in, t_zl = st.tabs(["🖨️ Thông tin Doanh Nghiệp (In Bill)", "🤖 Cấu hình Zalo Bot Cảnh Báo"])
         with t_in:
             with st.form("form_print_setting"):
@@ -2031,8 +2033,11 @@ elif tab_sys == "4. Phân Quyền Giá Riêng":
                 sdt_ch = st.text_input("Số tổng đài bãi xe:", value=config['so_dien_thoai'])
                 stk_ch = st.text_area("Số Tài Khoản Nhận Tiền:", value=config['thong_tin_ngan_hang'])
                 if st.form_submit_button("Cập Nhật Thông Tin", type="primary"):
-                    with get_connection() as conn: conn.execute("UPDATE cau_hinh_in SET ten_cua_hang=?, so_dien_thoai=?, thong_tin_ngan_hang=? WHERE id=1", (ten_ch, sdt_ch, stk_ch)); conn.commit()
-                    st.success("Đã đồng bộ thông tin in ấn!"); st.rerun()
+                    with get_connection() as conn: 
+                        conn.execute("UPDATE cau_hinh_in SET ten_cua_hang=?, so_dien_thoai=?, thong_tin_ngan_hang=? WHERE id=1", (ten_ch, sdt_ch, stk_ch))
+                        conn.commit()
+                    st.success("Đã đồng bộ thông tin in ấn!")
+                    st.rerun()
         with t_zl:
             st.info("Zalo OA Bot sẽ tự động gửi tin nhắn đến điện thoại của bạn mỗi khi Trạm phát lệnh xuất xe hoặc Lái xe thu tiền về báo Cáo.")
             with st.form("form_zalo"):
@@ -2041,14 +2046,19 @@ elif tab_sys == "4. Phân Quyền Giá Riêng":
                 zalo_id = st.text_input("ID Người nhận (Zalo User ID):", value=config.get('zalo_id', ''), help="User ID của tài khoản Zalo Giám đốc để nhận tin nổ tự động.")
                 if st.form_submit_button("Lưu cấu hình API Zalo", type="primary"):
                     is_act = 1 if zalo_active else 0
-                    with get_connection() as conn: conn.execute("UPDATE cau_hinh_in SET zalo_token=?, zalo_id=?, zalo_active=? WHERE id=1", (zalo_token, zalo_id, is_act)); conn.commit()
-                    st.success("Cấu hình Zalo đã được thiết lập thành công!"); st.rerun()
+                    with get_connection() as conn: 
+                        conn.execute("UPDATE cau_hinh_in SET zalo_token=?, zalo_id=?, zalo_active=? WHERE id=1", (zalo_token, zalo_id, is_act))
+                        conn.commit()
+                    st.success("Cấu hình Zalo đã được thiết lập thành công!")
+                    st.rerun()
 
     # ------------------ 6. QUẢN LÝ TÀI KHOẢN (ADMIN) ------------------
     elif tab_sys == "6. Quản Lý Tài Khoản":
-        if not is_admin: st.error("🔒 Chỉ quản trị viên (Admin) mới có quyền truy cập khu vực này.")
+        if not is_admin: 
+            st.error("🔒 Chỉ quản trị viên (Admin) mới có quyền truy cập khu vực này.")
         else:
-            with get_connection() as conn: df_users = pd.read_sql_query("SELECT id, username, role, status FROM users WHERE username != 'admin'", conn.connection)
+            with get_connection() as conn: 
+                df_users = pd.read_sql_query("SELECT id, username, role, status FROM users WHERE username != 'admin'", conn.connection)
             t_u1, t_u2 = st.tabs(["🟡 Phê Duyệt Mới", "🟢 Cấp Quyền & Xóa"])
             with t_u1:
                 if not df_users.empty and 'Chờ duyệt' in df_users['status'].values:
@@ -2059,10 +2069,14 @@ elif tab_sys == "4. Phân Quyền Giá Riêng":
                             c1, c2 = st.columns(2)
                             with c1: 
                                 if st.form_submit_button("✅ Cấp quyền"):
-                                    with get_connection() as c: c.execute("UPDATE users SET status='Đã duyệt', role=? WHERE id=?", (role_assign, r['id'])); c.commit()
+                                    with get_connection() as c: 
+                                        c.execute("UPDATE users SET status='Đã duyệt', role=? WHERE id=?", (role_assign, r['id']))
+                                        c.commit()
                                     st.rerun()
                             with c2:
-                                if st.form_submit_button("❌ Xóa"): cb_xoa_user(r['id']); st.rerun()
+                                if st.form_submit_button("❌ Xóa"): 
+                                    cb_xoa_user(r['id'])
+                                    st.rerun()
             with t_u2:
                 if not df_users.empty:
                     for idx, r in df_users[df_users['status'] == 'Đã duyệt'].iterrows():
@@ -2072,21 +2086,27 @@ elif tab_sys == "4. Phân Quyền Giá Riêng":
                                 c1, c2 = st.columns(2)
                                 with c1:
                                     if st.form_submit_button("💾 Lưu Quyền Mới"):
-                                        with get_connection() as c: c.execute("UPDATE users SET role=? WHERE id=?", (new_role, r['id'])); c.commit()
+                                        with get_connection() as c: 
+                                            c.execute("UPDATE users SET role=? WHERE id=?", (new_role, r['id']))
+                                            c.commit()
                                         st.rerun()
                                 with c2:
-                                    if st.form_submit_button("🗑️ Xóa vĩnh viễn"): cb_xoa_user(r['id']); st.rerun()
+                                    if st.form_submit_button("🗑️ Xóa vĩnh viễn"): 
+                                        cb_xoa_user(r['id'])
+                                        st.rerun()
 
-   # ------------------ 7. SYSTEM LOG ------------------
+    # ------------------ 7. SYSTEM LOG ------------------
     elif tab_sys == "7. System Log":
         st.markdown("### 🛠️ NHẬT KÝ HỆ THỐNG")
-        if is_manager: st.warning("⚠️ Bạn là Quản lý, bạn chỉ có quyền xem nhật ký hệ thống.")
+        if is_manager: 
+            st.warning("⚠️ Bạn là Quản lý, bạn chỉ có quyền xem nhật ký hệ thống.")
         elif is_admin:
             st.markdown("<div class='danger-zone'><h4>⚠️ KHU VỰC KHẨN CẤP QUẢN TRỊ VIÊN</h4></div><br>", unsafe_allow_html=True)
             col_log1, col_log2 = st.columns([1, 1])
             with col_log1:
-                if st.button("🗑️ Xóa bảng Log màn hình", use_container_width=True): st.session_state.sys_log = []; st.rerun()
-                # NÚT ĐỒNG BỘ ĐÃ ĐƯỢC CHUYỂN VÀO ĐÂY (CHỈ ADMIN THẤY)
+                if st.button("🗑️ Xóa bảng Log màn hình", use_container_width=True): 
+                    st.session_state.sys_log = []
+                    st.rerun()
                 if st.button("🔄 Ép Đồng Bộ Google Sheets", use_container_width=True, help="Kéo lại toàn bộ dữ liệu từ Google Sheets"):
                     init_local_db(force_pull=True)
                     write_log("ĐỒNG BỘ", "SUCCESS", "Đã ép tải dữ liệu từ Google Sheets.")
@@ -2098,7 +2118,8 @@ elif tab_sys == "4. Phân Quyền Giá Riêng":
                         st.session_state.sys_log = []
                         write_log("FACTORY RESET", "SUCCESS", "Đã xóa Nhật ký (Dữ liệu gốc được bảo vệ an toàn).")
                         st.success("💥 Đã làm mới nhật ký thành công! Dữ liệu gốc vẫn còn nguyên.")
-                    else: st.error("❌ Mật khẩu sai!")
+                    else: 
+                        st.error("❌ Mật khẩu sai!")
         
         log_content = "\n".join(st.session_state.sys_log) if st.session_state.sys_log else "Hệ thống đang hoạt động an toàn."
         st.markdown(f"<div class='log-box'>{log_content.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
