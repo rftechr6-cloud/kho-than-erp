@@ -2052,7 +2052,7 @@ elif tab_sys == "5. Hệ Thống (In Bill & Zalo Bot)":
                     st.success("Cấu hình Zalo đã được thiết lập thành công!"); st.rerun()
 
     # ------------------ 6. QUẢN LÝ TÀI KHOẢN (ADMIN) ------------------
-    elif tab_sys == "6. Quản Lý Tài Khoản":
+elif tab_sys == "6. Quản Lý Tài Khoản":
         if not is_admin: st.error("🔒 Chỉ quản trị viên (Admin) mới có quyền truy cập khu vực này.")
         else:
             with get_connection() as conn: df_users = pd.read_sql_query("SELECT id, username, role, status FROM users WHERE username != 'admin'", conn.connection)
