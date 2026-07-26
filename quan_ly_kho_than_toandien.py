@@ -2045,7 +2045,7 @@ elif tab_sys == "5. Hệ Thống (In Bill & Zalo Bot)":
                     st.success("Cấu hình Zalo đã được thiết lập thành công!"); st.rerun()
 
     # ------------------ 6. QUẢN LÝ TÀI KHOẢN (ADMIN) ------------------
-   elif tab_sys == "6. Quản Lý Tài Khoản":
+elif tab_sys == "6. Quản Lý Tài Khoản":
         if not is_admin: st.error("🔒 Chỉ quản trị viên (Admin) mới có quyền truy cập khu vực này.")
         else:
             with get_connection() as conn: df_users = pd.read_sql_query("SELECT id, username, role, status FROM users WHERE username != 'admin'", conn.connection)
@@ -2078,7 +2078,7 @@ elif tab_sys == "5. Hệ Thống (In Bill & Zalo Bot)":
                                     if st.form_submit_button("🗑️ Xóa vĩnh viễn"): cb_xoa_user(r['id']); st.rerun()
 
    # ------------------ 7. SYSTEM LOG ------------------
-   elif tab_sys == "7. System Log":
+elif tab_sys == "7. System Log":
         st.markdown("### 🛠️ NHẬT KÝ HỆ THỐNG")
         if is_manager: st.warning("⚠️ Bạn là Quản lý, bạn chỉ có quyền xem nhật ký hệ thống.")
         elif is_admin:
