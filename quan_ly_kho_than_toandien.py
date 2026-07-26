@@ -1989,15 +1989,16 @@ elif menu == "Cài Đặt Hệ Thống":
                             st.error(f"❌ Có lỗi xảy ra: {e}")
 
             # Bảng hiển thị danh sách giá riêng hiện tại
-            st.markdown("---")
-            st.markdown("#### Danh sách cơ chế giá đang áp dụng")
-            with get_connection() as conn:
-                df_hien_tai = pd.read_sql_query("""
-                    SELECT kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than", g.gia_ban as "Giá Riêng (đ/kg)" 
-                    FROM gia_rieng g 
-                    JOIN khach_hang kh ON g.khach_hang_id = kh.id 
-                    JOIN loai_than lt ON g.loai_than_id = lt.id
-                """, conn.connection)
+        st.markdown("---")
+        st.markdown("#### Danh sách cơ chế giá đang áp dụng")
+        with get_connection() as conn:
+            # THAY ĐỔI TÊN BẢNG SAU CHỮ 'FROM' VÀ 'JOIN' CHO KHỚP
+            df_hien_tai = pd.read_sql_query("""
+                SELECT kh.ten_khach as "Khách Hàng", lt.ten_than as "Loại Than", g.gia_ban as "Giá Riêng (đ/kg)" 
+                FROM co_che_gia g 
+                JOIN khach_hang kh ON g.khach_hang_id = kh.id 
+                JOIN loai_than lt ON g.loai_than_id = lt.id
+            """, conn.connection)
             
             if not df_hien_tai.empty:
                 st.dataframe(df_hien_tai.style.format({'Giá Riêng (đ/kg)': '{:,.0f}'}), hide_index=True, use_container_width=True)
