@@ -4,3 +4,4 @@ plotly
 gspread
 oauth2client
 streamlit-option-menu
+starlette<0.40.0
